@@ -76,7 +76,7 @@ config BT_HCI_SF32LB52
 
 config BT_HCI_UART
     bool "H4 over UART"
-    depends on QEMU || SOC_POSIX
+    depends on QEMU || SOC_POSIX || SOC_STM32F4
     help
       Talk H4 HCI to an external controller over the board's BT_HCI_UART.
       On QEMU this is the fourth serial port, on native boards the -b
@@ -91,6 +91,28 @@ config BT_HCI_FAKE
       can be established. For targets without a radio, such as QEMU.
 
 endchoice
+
+config BT_HCI_UART_LEGACY
+    bool
+    depends on BT_HCI_UART
+    default y if BT_CONTROLLER_CC2564
+    help
+      The legacy watches' H4 transport (transport/hci_uart_legacy.c in
+      NimBLE's glue) in place of Core's: it boots and sets up the
+      controller, runs its low-power UART protocol, puts the pinned
+      resolvable private address in, and recovers a wedged controller.
+      It drives the board's STM32 USART BOARD_BT_HCI_UART_DEV itself;
+      the BT_HCI_UART role is not used.
+
+config BT_OWN_SERVICE_CHANGED
+    bool "Service Changed with a reconnect"
+    default y if BT_CONTROLLER_CC2564
+    help
+      Indicate Service Changed after pairing, after an update that changed
+      the attribute layout and after importing the stock pairing, then
+      drop the link so the phone app reconnects with the new layout. The
+      watches that share the filesystem with the stock firmware need it:
+      phones keep the stock firmware's attribute cache otherwise.
 
 choice BT_ID_ADDR_SOURCE
     prompt "Identity address"
@@ -111,6 +133,14 @@ config BT_ID_ADDR_SF32LB52_EFUSE
     help
       Public address derived from the unique ID in the SoC's eFUSE.
 
+config BT_ID_ADDR_SERIAL
+    bool "Random static address from the serial number"
+    select BT_ID_ADDR
+    help
+      Derive a random static address from the watch's serial number on every
+      boot, as the legacy DA14681 firmware did. It needs no storage, so it
+      never changes, and matches the address the legacy firmware used.
+
 config BT_ID_ADDR_STORAGE
     bool "Stored random static address"
     depends on SERVICE_SHARED_PRF_STORAGE
@@ -125,6 +155,15 @@ config BT_ID_ADDR
     bool
     help
       An identity address backend is selected (pbl/bluetooth/id_addr.h).
+
+config BT_ID_ADDR_PREFER_PUBLIC
+    bool "Prefer the controller's public address"
+    depends on BT_ID_ADDR
+    help
+      Use the public address the controller reports, when it has one, and
+      the identity address source above only when it reports none. For
+      controllers that some units ship with a factory address and others
+      not.
 
 module = BT
 module-str = Bluetooth

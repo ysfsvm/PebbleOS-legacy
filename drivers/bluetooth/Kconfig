@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Brian Silvestri
+# SPDX-License-Identifier: Apache-2.0
+
+config BT_CONTROLLER_CC2564
+    bool "TI CC2564 controller"
+    depends on SOC_STM32F4 && BT_HCI_UART
+    help
+      Power up a TI CC2564B as the H4 HCI controller and load TI's
+      initialization script (third_party/ti_bt_sp), which it needs at every
+      power up. The board provides BOARD_BT_HCI_UART_DEV (the STM32 USART
+      the controller is on), BOARD_BT_HCI_USART, BOARD_BT_SHUTDOWN,
+      BOARD_BT_CTS, BOARD_BT_HOST_RTS and BOARD_MCO1 for its 32 kHz slow
+      clock.
+
+config BT_CC2564_HCI_BAUD
+    int "HCI baud rate"
+    depends on BT_CONTROLLER_CC2564
+    default 921600
+    help
+      Baud rate the controller is switched to after power up.
+
+config BT_CC2564_SLEEP
+    bool "CC2564 deep sleep (eHCILL)"
+    depends on BT_CONTROLLER_CC2564
+    help
+      Let the controller deep sleep with TI's eHCILL protocol (SWRA288)
+      and the host enter STOP mode meanwhile. Without it the controller
+      never sleeps and STOP is blocked while Bluetooth runs.
+
+config BT_CC2564_SLEEP_NO_STOP
+    bool "Keep the host out of STOP while the controller sleeps"
+    depends on BT_CC2564_SLEEP
+    help
+      The controller still deep sleeps, but STOP stays blocked while
+      Bluetooth runs, in case STOP stops MCO1, the controller's slow clock.
+      For testing the two apart.
+

@@ -3,6 +3,9 @@
 
 #pragma once
 
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+#include <stdbool.h>
+#endif
 #include <stdint.h>
 
 //! @file
@@ -39,6 +42,15 @@ bool gatt_service_changed_client_handle_indication(struct GAPLEConnection *conne
 // Server -- Pebble serving up the "Service Changed" characteristic to the remote
 
 void gatt_service_changed_server_handle_fw_update(void);
+
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+//! @return true if this boot follows a firmware update, so remotes may hold a stale cache.
+bool gatt_service_changed_server_fw_updated(void);
+
+//! Before rebooting into an update, note the attribute layout, so the next boot can tell
+//! whether the phone's cache still matches.
+void gatt_service_changed_note_update_layout(void);
+#endif
 
 ////////////////////////////
 // For Testing:

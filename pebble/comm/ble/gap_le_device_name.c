@@ -20,6 +20,13 @@ pbl_bt_bonding_id_t prv_get_bonding_id_and_name_from_address_safe(void *ctx, cha
     goto unlock;
   }
 
+#ifdef CONFIG_LEGACY_BT_NAME_ON_FIRST_PAIRING
+  if (device_name && !connection->device_name) {
+    // Nothing read yet to store.
+    goto unlock;
+  }
+#endif
+
   bonding_id = connection->bonding_id;
 
   if (device_name) {

@@ -84,6 +84,9 @@ bool gatt_service_changed_client_handle_indication(struct GAPLEConnection *conne
 #define GATT_SERVICE_CHANGED_INDICATION_MAX_TIMES (5)
 
 static uint32_t s_service_changed_indications_left;
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+static bool s_fw_updated;
+#endif
 
 // For unit testing
 void gatt_service_changed_server_init(void) {
@@ -97,7 +100,16 @@ void gatt_service_changed_server_handle_fw_update(void) {
   // remote to do discover services again. However, cap the total number of times we send the
   // "Service Change" indication:
   s_service_changed_indications_left = GATT_SERVICE_CHANGED_INDICATION_MAX_TIMES;
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+  s_fw_updated = true;
+#endif
 }
+
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+bool gatt_service_changed_server_fw_updated(void) {
+  return s_fw_updated;
+}
+#endif
 
 void pbl_bt_cb_gatt_service_changed_server_confirmation(
     const struct pbl_bt_gatt_server_changed_confirmation_event *event) {

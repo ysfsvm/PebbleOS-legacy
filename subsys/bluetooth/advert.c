@@ -1,9 +1,15 @@
 /* SPDX-FileCopyrightText: 2025 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#ifdef CONFIG_BT_HCI_UART_LEGACY
+#include "id_priv.h"
+#endif
 #include "nimble_gattc_op_queue.h"
 #include "nimble_type_conversions.h"
 #include "pairability_priv.h"
+#ifdef CONFIG_LEGACY_BT_PASSKEY_DISPLAY
+#include "pairing_confirm_priv.h"
+#endif
 
 #include <stdio.h>
 
@@ -11,12 +17,28 @@
 #include <pbl/bluetooth/bonding_sync.h>
 #include <pbl/bluetooth/gatt.h>
 #include <pbl/bluetooth/pairing_confirm.h>
+#ifdef CONFIG_LEGACY_BT_PASSKEY_DISPLAY
+#include <pbl/drivers/rng.h>
+#endif
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/malloc.h>
 #include <pbl/logging/logging.h>
 #include <pbl/util/math.h>
 
 #include <host/ble_gap.h>
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+#include <pbl/crc/crc.h>
+#include <pbl/settings/settings.h>
+
+#include <comm/ble/gap_le_connection.h>
+#include <comm/ble/gatt_service_changed.h>
+#include <comm/bt_conn_mgr.h>
+#include <comm/bt_lock.h>
+#include <host/ble_gatt.h>
+#include <host/ble_uuid.h>
+#include <nimble/nimble_port.h>
+#include <services/gatt/ble_svc_gatt.h>
+#endif
 #include <os/os_mbuf.h>
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
@@ -182,13 +204,203 @@ static void prv_handle_disconnection_event(struct ble_gap_event *event) {
   pbl_bt_handle_le_disconnection_complete_event(&disconnection_event);
 }
 
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+// A phone that paired with the stock firmware keeps its attribute cache, even
+// when it pairs again: Android drops it only on unbonding or on Service Changed.
+// Phone apps keep the attributes they found at connect for the whole link,
+// so drop the link a little after Service Changed: the reconnect uses ours.
+#define SVC_CHANGED_RECONNECT_MS 1000
+// After an update the phone rediscovers every handle while the watch discovers
+// the phone's: give it time to finish, or a cut-short rediscovery leaves it
+// with a mix of the old layout and ours.
+#define SVC_CHANGED_UPDATE_RECONNECT_MS 10000
+
+// While the link is kept responsive (an install, and 10 s after it), put the
+// reconnect off so it does not cut a transfer short; up to 2 minutes.
+#define SVC_CHANGED_DEFER_MS  2000
+#define SVC_CHANGED_DEFER_MAX 60
+
+static struct ble_npl_callout s_svc_changed_reconnect;
+static uint16_t s_svc_changed_conn = BLE_HS_CONN_HANDLE_NONE;
+static uint8_t s_svc_changed_defers;
+
+static bool prv_link_busy(uint16_t conn_handle) {
+  struct ble_gap_conn_desc desc;
+  if (ble_gap_conn_find(conn_handle, &desc) != 0) {
+    return false;
+  }
+
+  struct pbl_bt_addr addr;
+  nimble_addr_to_pebble_addr(&desc.peer_id_addr, &addr);
+
+  bool busy = false;
+  bt_lock();
+  GAPLEConnection *connection = gap_le_connection_by_addr(&addr);
+  if (connection != nullptr) {
+    busy = conn_mgr_get_latency_for_le_connection(connection, nullptr) == PBL_BT_RESPONSE_TIME_MIN;
+  }
+  bt_unlock();
+
+  return busy;
+}
+
+static void prv_svc_changed_reconnect_cb(struct ble_npl_event *ev) {
+  if (s_svc_changed_defers < SVC_CHANGED_DEFER_MAX && prv_link_busy(s_svc_changed_conn)) {
+    s_svc_changed_defers++;
+    ble_npl_callout_reset(&s_svc_changed_reconnect,
+                          ble_npl_time_ms_to_ticks32(SVC_CHANGED_DEFER_MS));
+    return;
+  }
+
+  (void)ble_gap_terminate(s_svc_changed_conn, BLE_ERR_REM_USER_CONN_TERM);
+  s_svc_changed_conn = BLE_HS_CONN_HANDLE_NONE;
+}
+
+static void prv_svc_changed_schedule_reconnect(uint16_t conn_handle, uint32_t delay_ms) {
+  static bool s_reconnect_ready;
+  if (!s_reconnect_ready) {
+    ble_npl_callout_init(&s_svc_changed_reconnect, nimble_port_get_dflt_eventq(),
+                         prv_svc_changed_reconnect_cb, nullptr);
+    s_reconnect_ready = true;
+  }
+  s_svc_changed_conn = conn_handle;
+  s_svc_changed_defers = 0;
+  ble_npl_callout_reset(&s_svc_changed_reconnect, ble_npl_time_ms_to_ticks32(delay_ms));
+}
+
+// An update from this firmware to one with the same attribute layout leaves the
+// phone's cache right: no Service Changed, no reconnect. The layout is noted
+// just before rebooting into the update and taken at the first encrypted link
+// after the next boot, whatever its reason. Anything else (a factory reset, an
+// install from the stock recovery, another layout) indicates as before.
+#define SVC_LAYOUT_FILE      "bt_svc_layout"
+#define SVC_LAYOUT_FILE_SIZE 128
+static const uint8_t SVC_LAYOUT_KEY = 1;
+
+// NimBLE's, declared only in its private headers.
+void ble_gatts_lcl_svc_foreach(ble_gatt_svc_foreach_fn cb, void *arg);
+
+static void prv_layout_hash_uuid(uint32_t *crc, const ble_uuid_t *uuid) {
+  *crc = pbl_crc32(*crc, &uuid->type, sizeof(uuid->type));
+  switch (uuid->type) {
+    case BLE_UUID_TYPE_16:
+      *crc = pbl_crc32(*crc, &BLE_UUID16(uuid)->value, sizeof(BLE_UUID16(uuid)->value));
+      break;
+    case BLE_UUID_TYPE_32:
+      *crc = pbl_crc32(*crc, &BLE_UUID32(uuid)->value, sizeof(BLE_UUID32(uuid)->value));
+      break;
+    default:
+      *crc = pbl_crc32(*crc, BLE_UUID128(uuid)->value, sizeof(BLE_UUID128(uuid)->value));
+      break;
+  }
+}
+
+static void prv_layout_hash_svc(const struct ble_gatt_svc_def *svc, uint16_t handle,
+                                uint16_t end_group_handle, void *arg) {
+  uint32_t *crc = arg;
+  const uint16_t range[2] = {handle, end_group_handle};
+
+  *crc = pbl_crc32(*crc, &svc->type, sizeof(svc->type));
+  *crc = pbl_crc32(*crc, range, sizeof(range));
+  prv_layout_hash_uuid(crc, svc->uuid);
+  for (const struct ble_gatt_chr_def *chr = svc->characteristics; chr && chr->uuid; chr++) {
+    prv_layout_hash_uuid(crc, chr->uuid);
+    *crc = pbl_crc32(*crc, &chr->flags, sizeof(chr->flags));
+    for (const struct ble_gatt_dsc_def *dsc = chr->descriptors; dsc && dsc->uuid; dsc++) {
+      prv_layout_hash_uuid(crc, dsc->uuid);
+      *crc = pbl_crc32(*crc, &dsc->att_flags, sizeof(dsc->att_flags));
+    }
+  }
+}
+
+static uint32_t prv_layout_hash(void) {
+  uint32_t crc = 0;
+  ble_gatts_lcl_svc_foreach(prv_layout_hash_svc, &crc);
+  return crc;
+}
+
+void gatt_service_changed_note_update_layout(void) {
+  const uint32_t hash = prv_layout_hash();
+  struct pbl_settings_file file;
+  if (pbl_settings_open(&file, SVC_LAYOUT_FILE, SVC_LAYOUT_FILE_SIZE) != 0) {
+    return;
+  }
+  (void)pbl_settings_set(&file, &SVC_LAYOUT_KEY, sizeof(SVC_LAYOUT_KEY), &hash, sizeof(hash));
+  pbl_settings_close(&file);
+}
+
+//! True if the phone may hold another attribute layout than ours. Computed once per boot.
+static bool prv_layout_may_have_changed(void) {
+  static bool s_checked;
+  static bool s_changed;
+  if (s_checked) {
+    return s_changed;
+  }
+  s_checked = true;
+
+  uint32_t noted = 0;
+  bool have_noted = false;
+  struct pbl_settings_file file;
+  if (pbl_settings_open(&file, SVC_LAYOUT_FILE, SVC_LAYOUT_FILE_SIZE) == 0) {
+    have_noted = pbl_settings_get(&file, &SVC_LAYOUT_KEY, sizeof(SVC_LAYOUT_KEY), &noted,
+                                  sizeof(noted)) == 0;
+    (void)pbl_settings_delete(&file, &SVC_LAYOUT_KEY, sizeof(SVC_LAYOUT_KEY));
+    pbl_settings_close(&file);
+  }
+
+  s_changed =
+      gatt_service_changed_server_fw_updated() && !(have_noted && noted == prv_layout_hash());
+  PBL_LOG_INFO("Service Changed after update: %s", s_changed ? "needed" : "layout unchanged");
+  return s_changed;
+}
+
+// After a firmware update the phone may hold the cache of another attribute
+// layout, and it does not enable Service Changed again on a bonded link, so
+// indicate on the first encrypted link. Once per phone and boot, so the
+// rediscovery after the reconnect does not start another round.
+static bool s_svc_changed_update_sent;
+static ble_addr_t s_svc_changed_update_peer;
+
+static void prv_svc_changed_after_update(uint16_t conn_handle,
+                                         const struct ble_gap_conn_desc *desc) {
+  if (!desc->sec_state.encrypted || !desc->sec_state.bonded || !prv_layout_may_have_changed() ||
+      (s_svc_changed_update_sent &&
+       ble_addr_cmp(&desc->peer_id_addr, &s_svc_changed_update_peer) == 0)) {
+    return;
+  }
+
+  const ble_uuid16_t svc_uuid = BLE_UUID16_INIT(PBL_BT_GATT_SERVICE_UUID);
+  const ble_uuid16_t chr_uuid = BLE_UUID16_INIT(BLE_SVC_GATT_CHR_SERVICE_CHANGED_UUID16);
+  uint16_t val_handle;
+  if (ble_gatts_find_chr(&svc_uuid.u, &chr_uuid.u, nullptr, &val_handle) != 0) {
+    return;
+  }
+
+  // Indicate without a stored subscription: every handle changed.
+  const uint16_t range[2] = {htole16(0x0001), htole16(0xFFFF)};
+  struct os_mbuf *om = ble_hs_mbuf_from_flat(range, sizeof(range));
+  if (!om) {
+    return;
+  }
+  int rc = ble_gatts_indicate_custom(conn_handle, val_handle, om);
+  if (rc != 0) {
+    PBL_LOG_ERR("Service Changed: indicate failed: 0x%04x", (uint16_t)rc);
+    return;
+  }
+  PBL_LOG_INFO("Service Changed: indicated after update, reconnecting");
+  s_svc_changed_update_sent = true;
+  s_svc_changed_update_peer = desc->peer_id_addr;
+
+  prv_svc_changed_schedule_reconnect(conn_handle, SVC_CHANGED_UPDATE_RECONNECT_MS);
+}
+#endif
+
 static void prv_handle_enc_change_event(struct ble_gap_event *event) {
   struct ble_gap_conn_desc desc;
   if (ble_gap_conn_find(event->enc_change.conn_handle, &desc) != 0) {
     PBL_LOG_ERR("prv_handle_enc_change_event: Failed to find connection descriptor");
     return;
   }
-
   PBL_LOG_INFO("Encryption change: status=0x%04x encrypted=%u bonded=%u",
                (uint16_t)event->enc_change.status, desc.sec_state.encrypted, desc.sec_state.bonded);
 
@@ -198,6 +410,10 @@ static void prv_handle_enc_change_event(struct ble_gap_event *event) {
   };
   nimble_addr_to_pebble_addr(&desc.peer_id_addr, &enc_change_event.dev_address);
   pbl_bt_handle_le_encryption_change_event(&enc_change_event);
+
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+  prv_svc_changed_after_update(event->enc_change.conn_handle, &desc);
+#endif
 }
 
 static void prv_handle_conn_params_updated_event(struct ble_gap_event *event) {
@@ -245,14 +461,51 @@ static void prv_handle_passkey_event(struct ble_gap_event *event) {
   struct pbl_bt_pairing_confirm_ctx *ctx =
       (struct pbl_bt_pairing_confirm_ctx *)((uintptr_t)event->passkey.conn_handle);
 
+#ifdef CONFIG_LEGACY_BT_PASSKEY_DISPLAY
+  const uint16_t conn_handle = event->passkey.conn_handle;
+
+  switch (event->passkey.params.action) {
+    case BLE_SM_IOACT_NUMCMP:
+      passkey = event->passkey.params.numcmp;
+      pairing_confirm_set_display_conn(BLE_HS_CONN_HANDLE_NONE);
+      break;
+    case BLE_SM_IOACT_DISP: {
+      // Legacy passkey entry: show a random passkey for the phone's user to
+      // type, and give it to NimBLE now.
+      uint32_t random;
+      if (!rng_rand(&random)) {
+        // A predictable passkey would protect nothing.
+        PBL_LOG_ERR("No random passkey; ending pairing");
+        (void)ble_gap_terminate(conn_handle, BLE_ERR_AUTH_FAIL);
+        return;
+      }
+      passkey = random % 1000000U;
+      struct ble_sm_io io = {
+        .action = BLE_SM_IOACT_DISP,
+        .passkey = passkey,
+      };
+      const int rc = ble_sm_inject_io(conn_handle, &io);
+      if (rc != 0) {
+        PBL_LOG_ERR("ble_sm_inject_io (passkey) rc=0x%04x", (uint16_t)rc);
+      }
+      pairing_confirm_set_display_conn(conn_handle);
+      break;
+    }
+    default:
+      // No keyboard or out of band data to answer with.
+      PBL_LOG_WRN("Unsupported pairing action %u", (unsigned)event->passkey.params.action);
+      (void)ble_gap_terminate(conn_handle, BLE_ERR_AUTH_FAIL);
+      return;
+  }
+#else
   if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
     passkey = event->passkey.params.numcmp;
   }
+#endif
 
   if (s_device_name[0] != '\0') {
     device_name = s_device_name;
   }
-
   snprintf(passkey_str, sizeof(passkey_str), "%06" PRIu32, passkey);
   pbl_bt_cb_pairing_confirm_handle_request(ctx, device_name, passkey_str);
   s_pairing_in_progress = true;
@@ -261,6 +514,9 @@ static void prv_handle_passkey_event(struct ble_gap_event *event) {
 
 static void prv_handle_pairing_complete_event(struct ble_gap_event *event) {
   PBL_LOG_INFO("Pairing complete: status=0x%04x", (uint16_t)event->pairing_complete.status);
+#ifdef CONFIG_LEGACY_BT_PASSKEY_DISPLAY
+  pairing_confirm_set_display_conn(BLE_HS_CONN_HANDLE_NONE);
+#endif
 
   prv_end_pairing(event->pairing_complete.conn_handle, event->pairing_complete.status == 0);
 }
@@ -292,11 +548,40 @@ static void prv_handle_mtu_change_event(struct ble_gap_event *event) {
 
 extern int pebble_pairing_service_get_connectivity_send_notification(uint16_t conn_handle,
                                                                      uint16_t attr_handle);
+
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+// A phone enables Service Changed right after pairing. It may still hold the
+// attribute cache of another firmware (the stock recovery it paired with),
+// so tell it every handle changed and it rediscovers ours. Only on an
+// encrypted link: iOS subscribes before pairing, and the reconnect below
+// would cut its pairing short.
+static void prv_svc_changed_after_pairing(const struct ble_gap_event *event) {
+  struct ble_gap_conn_desc desc;
+  if (event->subscribe.reason == BLE_GAP_SUBSCRIBE_REASON_WRITE && event->subscribe.cur_indicate &&
+      !event->subscribe.prev_indicate &&
+      ble_gap_conn_find(event->subscribe.conn_handle, &desc) == 0 && desc.sec_state.encrypted) {
+    const ble_uuid16_t svc_uuid = BLE_UUID16_INIT(PBL_BT_GATT_SERVICE_UUID);
+    const ble_uuid16_t chr_uuid = BLE_UUID16_INIT(BLE_SVC_GATT_CHR_SERVICE_CHANGED_UUID16);
+    uint16_t val_handle;
+    if (ble_gatts_find_chr(&svc_uuid.u, &chr_uuid.u, nullptr, &val_handle) == 0 &&
+        event->subscribe.attr_handle == val_handle) {
+      ble_svc_gatt_changed(0x0001, 0xFFFF);
+      prv_svc_changed_schedule_reconnect(event->subscribe.conn_handle, SVC_CHANGED_RECONNECT_MS);
+    }
+  }
+}
+#endif
+
 static void prv_handle_subscription_event(struct ble_gap_event *event) {
   PBL_LOG_DBG("prv_handle_subscription_event: connhandle: %d attr:%d notify:%d/%d indicate:%d/%d",
               event->subscribe.conn_handle, event->subscribe.attr_handle,
               event->subscribe.prev_notify, event->subscribe.cur_notify,
               event->subscribe.prev_indicate, event->subscribe.cur_indicate);
+#ifdef CONFIG_BT_OWN_SERVICE_CHANGED
+  // These watches indicate Service Changed themselves, with a reconnect, after pairing and after
+  // an update.
+  prv_svc_changed_after_pairing(event);
+#endif
 }
 
 static void prv_handle_notification_rx_event(struct ble_gap_event *event) {
@@ -342,6 +627,14 @@ static int prv_handle_pairing_request_event(struct ble_gap_event *event) {
   // Bonded peers are handled by the repeat pairing policy
   struct ble_store_key_sec key_sec = {.peer_addr = desc.peer_id_addr};
   if (ble_store_read_peer_sec(&key_sec, &value_sec) == 0) {
+#if defined(CONFIG_LEGACY_BT_PASSKEY_DISPLAY) && !defined(CONFIG_BT_REPEAT_PAIRING_ALWAYS)
+    // Where that does not let them pair again, refuse now: an ignored request leaves the phone
+    // waiting out its 30 s SMP timeout and retrying on every reconnect.
+    if (!(MYNEWT_VAL(BLE_SM_SC_ONLY) && (MYNEWT_VAL(BLE_SM_IO_CAP) == BLE_HS_IO_DISPLAY_YESNO))) {
+      PBL_LOG_INFO("Pairing request from bonded peer rejected: not pairable");
+      return BLE_SM_ERR_PAIR_NOT_SUPP;
+    }
+#endif
     return 0;
   }
 
@@ -365,6 +658,23 @@ static int prv_handle_repeat_pairing_event(struct ble_gap_event *event) {
 
   return BLE_GAP_REPEAT_PAIRING_RETRY;
 #else
+#ifdef CONFIG_LEGACY_BT_PASSKEY_DISPLAY
+  // Also while the user has made the watch pairable (Bluetooth settings open), so a phone whose
+  // keys no longer match (e.g. paired in the stock recovery) can pair again without forgetting
+  // the watch on both sides.
+  if (pairability_is_enabled()) {
+    struct ble_gap_conn_desc desc;
+    const int ret = ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
+    if (ret != 0) {
+      return ret;
+    }
+
+    PBL_LOG_INFO("Repeat pairing: deleting stored peer keys and retrying");
+    ble_store_util_delete_peer(&desc.peer_id_addr);
+
+    return BLE_GAP_REPEAT_PAIRING_RETRY;
+  }
+#endif
   PBL_LOG_WRN("BLE_GAP_EVENT_REPEAT_PAIRING ignored");
   return BLE_GAP_REPEAT_PAIRING_IGNORE;
 #endif
@@ -459,9 +769,26 @@ bool pbl_bt_advert_advertising_enable(uint32_t min_interval_ms, uint32_t max_int
 
   rc = ble_hs_id_infer_auto(0, &own_addr_type);
   if (rc != 0) {
+#ifdef CONFIG_LEGACY_BT_HOST_RESET_RECOVERY
+    // Retried every second while the host has no address, e.g. with its controller gone for
+    // good: log the first few and then a count, not one a second into the flash log.
+    static uint32_t s_infer_failures;
+    s_infer_failures++;
+    if (s_infer_failures <= 3U || (s_infer_failures % 256U) == 0U) {
+      PBL_LOG_ERR("Failed to infer own address type (%d), %lu times", rc,
+                  (unsigned long)s_infer_failures);
+    }
+#else
     PBL_LOG_ERR("Failed to infer own address type (%d)", rc);
+#endif
     return false;
   }
+
+#ifdef CONFIG_BT_HCI_UART_LEGACY
+  if (!ble_gap_adv_active()) {
+    pbl_bt_id_sync_local_address();
+  }
+#endif
 
   rc = ble_gap_adv_start(own_addr_type, nullptr, BLE_HS_FOREVER, &advp, prv_handle_gap_event,
                          nullptr);

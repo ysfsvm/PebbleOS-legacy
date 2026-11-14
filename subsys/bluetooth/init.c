@@ -4,6 +4,9 @@
 #include "nimble_store.h"
 #include "services/services.h"
 
+#ifdef CONFIG_BT_HCI_UART_LEGACY
+#include <pbl/bluetooth/hci_uart.h>
+#endif
 #include <pbl/bluetooth/id_addr.h>
 #include <pbl/bluetooth/init.h>
 #include <pbl/kernel/assert.h>
@@ -26,6 +29,17 @@
 PBL_LOG_MODULE_DEFINE(bt, CONFIG_BT_LOG_LEVEL);
 
 static const uint32_t s_bt_stack_start_stop_timeout_ms = 10000;
+
+#ifdef CONFIG_BT_HCI_UART_LEGACY
+// Long enough for the transport to retry booting its controller; the wait
+// feeds the caller's task watchdog.
+#ifdef CONFIG_BT_CONTROLLER_CC2564
+// The CC2564 is held off for seconds before each of its start attempts.
+#define BT_HCI_UART_READY_TIMEOUT_MS 30000U
+#else
+#define BT_HCI_UART_READY_TIMEOUT_MS 8000U
+#endif
+#endif
 
 extern void nimble_discover_init(void);
 extern void nimble_gattc_op_queue_init(void);
@@ -53,6 +67,9 @@ static DriverState s_driver_state = DriverStateStopped;
 
 #define LL_MAX_TX_OCTETS  251
 #define LL_MAX_TX_TIME_US 2120
+#ifdef CONFIG_LEGACY_BT_HOST_RESET_RECOVERY
+static int prv_ensure_addr(void);
+#endif
 
 static void prv_sync_cb(void) {
   PBL_LOG_DBG("NimBLE host synchronized");
@@ -64,11 +81,37 @@ static void prv_sync_cb(void) {
   }
 
   pbl_sem_give(&s_host_started);
+#ifdef CONFIG_LEGACY_BT_HOST_RESET_RECOVERY
+  // A host reset clears our identity address; pbl_bt_start() sets it on the first sync.
+  if (s_driver_state == DriverStateStarted) {
+    int rc = prv_ensure_addr();
+    if (rc != 0) {
+      PBL_LOG_ERR("Failed to restore address after host reset: 0x%04x", (uint16_t)rc);
+    }
+  }
+#endif
   pbl_bt_handle_host_resynced();
 }
 
 static void prv_reset_cb(int reason) {
+#ifdef CONFIG_LEGACY_BT_HOST_RESET_RECOVERY
+  // A host that cannot resync resets hundreds of times a second: log the
+  // first few and then a count, so the flash log keeps what led up to it.
+  static uint32_t s_resets;
+  s_resets++;
+  if (s_resets <= 3U || (s_resets % 256U) == 0U) {
+    PBL_LOG_WRN("NimBLE host reset %lu (reason: 0x%04x)", (unsigned long)s_resets,
+                (uint16_t)reason);
+  }
+#else
   PBL_LOG_WRN("NimBLE host reset (reason: 0x%04x)", (uint16_t)reason);
+#endif
+#ifdef CONFIG_BT_HCI_UART_LEGACY
+  // The controller stopped answering HCI: restart it.
+  if (reason == BLE_HS_ETIMEOUT_HCI) {
+    pbl_bt_hci_uart_controller_unresponsive();
+  }
+#endif
 #ifdef CONFIG_BT_HCI_SF32LB52
   // Controller stopped answering HCI. Crash so the coredump captures LCPU RAM
   // (core_dump wakes the LCPU itself); the reboot cold-recovers the controller.
@@ -81,6 +124,14 @@ static int prv_ensure_addr(void) {
   struct pbl_bt_addr addr;
   enum pbl_bt_id_addr_type type;
   int rc;
+
+#ifdef CONFIG_BT_ID_ADDR_PREFER_PUBLIC
+  // NimBLE advertises from a random address whenever one is set, so set none
+  // when the controller has a public address.
+  if (ble_hs_id_copy_addr(BLE_ADDR_PUBLIC, nullptr, nullptr) == 0) {
+    return 0;
+  }
+#endif
 
   rc = pbl_bt_id_addr_get(&addr, &type);
   if (rc != 0) {
@@ -172,13 +223,33 @@ bool pbl_bt_start(struct pbl_bt_config *config) {
     return false;
   }
 
+#ifdef CONFIG_LEGACY_BT_CONTROLLER_OFF_WHEN_STOPPED
+  pbl_bt_hci_uart_controller_power(true);
+#endif
+#ifdef CONFIG_BT_HCI_UART_LEGACY
+  // A controller that never came up would time the host start out below,
+  // which crashes; report the failure instead.
+  if (!pbl_bt_hci_uart_wait_ready(BT_HCI_UART_READY_TIMEOUT_MS)) {
+    PBL_LOG_ERR("HCI controller not available");
+    return false;
+  }
+#endif
+
   s_driver_state = DriverStateStarting;
   // Drain a stale host_started signal (e.g. from an autonomous host re-sync)
   // so we wait for *this* start to sync.
   (void)(pbl_sem_take(&s_host_started, PBL_NO_WAIT) == 0);
 
+#ifdef CONFIG_BT_CONTROLLER_CC2564
+  // GATT first, as the stock firmware and recovery have it: Service Changed
+  // then sits at the stock handle (0x0003), which phones that cached the stock
+  // layout honor, so they rediscover ours.
+  ble_svc_gatt_init();
+  ble_svc_gap_init();
+#else
   ble_svc_gap_init();
   ble_svc_gatt_init();
+#endif
   rc = pbl_bt__services_init(&config->dis_info);
   if (rc != 0) {
     (void)ble_gatts_reset();
@@ -187,11 +258,29 @@ bool pbl_bt_start(struct pbl_bt_config *config) {
   }
 
   ble_hs_sched_start();
+#ifdef CONFIG_BT_CONTROLLER_CC2564
+  // The controller is still unproven: a host that cannot
+  // sync with it leaves Bluetooth off instead of crashing, since a crash loop
+  // would end in the bootloader starting PRF. Feed the caller's task watchdog
+  // meanwhile.
+  f_rc = false;
+  for (uint32_t waited_ms = 0U; !f_rc && waited_ms < s_bt_stack_start_stop_timeout_ms;
+       waited_ms += 1000U) {
+    pbl_task_wdt_feed_self();
+    f_rc = (pbl_sem_take(&s_host_started, PBL_MSEC(1000U)) == 0);
+  }
+  pbl_task_wdt_feed_self();
+  if (!f_rc) {
+    PBL_LOG_ERR("NimBLE host start timed out");
+    goto err;
+  }
+#else
   f_rc = (pbl_sem_take(&s_host_started, PBL_MSEC(s_bt_stack_start_stop_timeout_ms)) == 0);
   if (!f_rc) {
     // core_dump wakes the LCPU itself, so its RAM is captured here too.
     pbl_panic("NimBLE host start timed out");
   }
+#endif
 
   rc = prv_ensure_addr();
   if (rc != 0) {
@@ -236,7 +325,16 @@ void pbl_bt_stop(void) {
   ble_gatts_reset();
 
   nimble_store_unload();
+
+#ifdef CONFIG_LEGACY_BT_CONTROLLER_OFF_WHEN_STOPPED
+  pbl_bt_hci_uart_controller_power(false);
+#endif
 }
 
 void pbl_bt_power_down_controller_on_boot(void) {
+#ifdef CONFIG_LEGACY_BT_CONTROLLER_OFF_WHEN_STOPPED
+  // The HCI thread boots the controller when it starts; hold it in shutdown until Bluetooth
+  // is switched on.
+  pbl_bt_hci_uart_controller_power(false);
+#endif
 }
