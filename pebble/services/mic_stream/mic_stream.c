@@ -85,7 +85,12 @@ static MicStreamTeardown prv_teardown_locked(bool phone_expects_stop) {
 static void prv_finish_teardown(const MicStreamTeardown *teardown) {
   // The mic stops first, so no frame arrives while the stop is sent. Also drops the reservation;
   // no-op on the mic if it never started or dictation already took it.
+#ifdef CONFIG_LEGACY_VOICE_ENCODER_IDLE_FREE
+  // The shared encoder holds over 8 KB of kernel heap, so it goes too unless dictation has it.
+  mic_manager_release_and_cleanup(MicClientAppStream, voice_speex_deinit);
+#else
   mic_manager_release(MicClientAppStream);
+#endif
   pbl_free(teardown->chunk);
   if (teardown->close_transfer) {
     if (teardown->phone_expects_stop) {

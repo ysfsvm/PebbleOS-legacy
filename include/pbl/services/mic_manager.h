@@ -66,6 +66,12 @@ bool mic_manager_reserve(MicClient client);
 //! Stops the microphone if the client owns it and drops its reservation. No-op otherwise.
 void mic_manager_release(MicClient client);
 
+#ifdef CONFIG_LEGACY_VOICE_ENCODER_IDLE_FREE
+//! mic_manager_release(), then `cleanup` under the manager lock, unless dictation is active or
+//! another client has the mic.
+void mic_manager_release_and_cleanup(MicClient client, void (*cleanup)(void));
+#endif
+
 //! Set for a whole dictation session, from before it takes the audio endpoint until it ends. Apps
 //! can neither reserve nor acquire the mic meanwhile.
 void mic_manager_set_dictation_active(bool active);

@@ -173,6 +173,19 @@ void mic_manager_release(MicClient client) {
   prv_unlock();
 }
 
+#ifdef CONFIG_LEGACY_VOICE_ENCODER_IDLE_FREE
+void mic_manager_release_and_cleanup(MicClient client, void (*cleanup)(void)) {
+  mic_manager_release(client);
+  pbl_mutex_lock(&s_lock, PBL_FOREVER);
+  // Skipped if dictation or another client took the mic in between.
+  if (!s_state.dictation_active && (s_state.owner == MicClientNone) &&
+      (s_state.reserved == MicClientNone)) {
+    cleanup();
+  }
+  prv_unlock();
+}
+#endif
+
 void mic_manager_set_dictation_active(bool active) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
   s_state.dictation_active = active;

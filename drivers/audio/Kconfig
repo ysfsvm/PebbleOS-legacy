@@ -79,6 +79,22 @@ config AUDIO_SIM_MIC
       Simulated microphone, recording the audio written through its
       simulator API (pbl/drivers/audio/sim.h), and silence when none is.
 
+config AUDIO_STM32_I2S_PDM
+    bool "STM32 I2S PDM"
+    default y if MIC
+    depends on HAL_STM32_STM32F439
+    help
+      Capture from a PDM microphone through an STM32F4 SPI in I2S mode,
+      decimated by the OpenPDMFilter (snowy).
+
+config AUDIO_STM32_I2S_PDM_TABLES_CCM
+    bool "OpenPDMFilter tables in core-coupled RAM"
+    depends on AUDIO_STM32_I2S_PDM && CCM_SIZE != 0
+    help
+      Put the filter's coefficient tables (4.6K, used by the CPU only) in
+      core-coupled RAM, leaving that much more SRAM to the kernel and
+      that much less kernel heap. For boards short of kernel SRAM.
+
 config AUDIO_NRF5_PDM
     bool "Nordic nRF5 PDM"
     default DT_HAS_NORDIC_NRF52832_PDM_ENABLED

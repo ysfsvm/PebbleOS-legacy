@@ -151,6 +151,14 @@ static void prv_reset(void) {
   s_state = SessionState_Idle;
   s_session_id = AUDIO_ENDPOINT_SESSION_INVALID_ID;
   mic_manager_set_dictation_active(false);
+#ifdef CONFIG_LEGACY_VOICE_ENCODER_IDLE_FREE
+  // The encoder takes over 8 KB of kernel heap: give it back between sessions
+  // rather than keep it from the first dictation on. voice_start_dictation()
+  // sets it up again. Not while the mic still feeds its frame buffer.
+  if (!mic_manager_is_busy()) {
+    voice_speex_deinit();
+  }
+#endif
 }
 
 static void prv_cancel_session(void) {
