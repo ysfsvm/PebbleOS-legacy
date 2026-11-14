@@ -7,12 +7,20 @@
 # with. See docs/sdk/building.md.
 
 function(pbl_sdk)
+  set(options)
+  if(CONFIG_SDK_UNFROZEN)
+    list(APPEND options --unfrozen)
+  endif()
+  if(CONFIG_SDK_FONT_GLYPH_SUBSET)
+    list(APPEND options --glyph-subset)
+  endif()
+
   # Packaging is asked for explicitly and copies a few hundred files, so it
   # repackages wholesale instead of tracking each one.
   add_custom_target(sdk
     COMMAND ${PYTHON_EXECUTABLE} ${PBL_BASE}/tools/cmake/sdk.py
             --output ${PROJECT_BINARY_DIR}/sdk --platform ${PBL_PLATFORM_NAME}
-            --work-dir ${PROJECT_BINARY_DIR}/sdk-waf
+            --work-dir ${PROJECT_BINARY_DIR}/sdk-waf ${options}
     DEPENDS pbl_native_sdk
     COMMENT "Packaging the SDK into ${PROJECT_BINARY_DIR}/sdk"
     VERBATIM

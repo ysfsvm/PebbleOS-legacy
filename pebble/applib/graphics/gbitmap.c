@@ -15,6 +15,9 @@
 
 #include <applib/applib_malloc.auto.h>
 #include <applib/applib_resource_private.h>
+#ifdef CONFIG_PLATFORM_CHALK
+#include <applib/graphics/framebuffer.h>
+#endif
 #include <applib/graphics/graphics.h>
 #include <process_state/app_state/app_state.h>
 #include <syscall/syscall.h>
@@ -256,6 +259,13 @@ static GBitmap *prv_gbitmap_create_blank(GSize size, GBitmapFormat format) {
       applib_free(bitmap);
       return nullptr;
     }
+
+#ifdef CONFIG_PLATFORM_CHALK
+    // The Time Round's packed framebuffer has the layout of legacy round apps.
+    if (BITMAP_FORMAT_IS_CIRCULAR_FULL_SCREEN(size, format)) {
+      bitmap->data_row_infos = g_gbitmap_legacy_3x_data_row_infos;
+    }
+#endif
   }
 
   return bitmap;

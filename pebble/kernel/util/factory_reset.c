@@ -33,6 +33,25 @@
 
 static bool s_in_factory_reset = false;
 
+#ifdef CONFIG_LEGACY_FACTORY_RESET_KEEPS_FIRMWARE
+#include <pbl/system/rtc_registers.h>
+
+#include <stm32f4xx_rtc.h>
+
+extern void RTC_WriteBackupRegister(uint32_t reg_id, uint32_t value);
+extern uint32_t RTC_ReadBackupRegister(uint32_t reg_id);
+#define FS_WIPE_PENDING_MAGIC 0x57495045U // "WIPE"
+
+void factory_reset_finish_pending_wipe(void) {
+  if (RTC_ReadBackupRegister(RTC_BKP_LEGACY_FS_WIPE) != FS_WIPE_PENDING_MAGIC) {
+    return;
+  }
+  PBL_LOG_WRN("A factory reset was interrupted: wiping the filesystem again");
+  pbl_fs_format("/");
+  RTC_WriteBackupRegister(RTC_BKP_LEGACY_FS_WIPE, 0U);
+}
+#endif
+
 static void prv_factory_reset_non_pfs_data() {
   PBL_LOG_SYNC_INFO("Factory resetting...");
 
@@ -76,7 +95,13 @@ void factory_reset(bool should_shutdown) {
 
   prv_factory_reset_non_pfs_data();
 
-#if !defined(CONFIG_RECOVERY_FW)
+#if defined(CONFIG_LEGACY_FACTORY_RESET_KEEPS_FIRMWARE)
+  // Keep the firmware: the wipe can take minutes, so note that it is under way and finish it
+  // at the next boot if a reset (watchdog, crash, power loss) cuts it short.
+  RTC_WriteBackupRegister(RTC_BKP_LEGACY_FS_WIPE, FS_WIPE_PENDING_MAGIC);
+  pbl_fs_format("/");
+  RTC_WriteBackupRegister(RTC_BKP_LEGACY_FS_WIPE, 0U);
+#elif !defined(CONFIG_RECOVERY_FW)
   // Commit to booting PRF before the filesystem wipe: it can take minutes,
   // and a reset in that window (watchdog, crash, power loss) must land in
   // PRF instead of rebooting a half-wiped normal firmware.

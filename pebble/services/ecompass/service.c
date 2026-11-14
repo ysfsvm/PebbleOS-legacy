@@ -63,6 +63,40 @@ static AccelServiceState *s_accel_session = nullptr;
 static bool s_charger_plugged = false;
 static AccelRawData s_accel_data = {};
 
+#ifdef CONFIG_LEGACY_ECOMPASS_RTC_CAL
+#include <pbl/system/rtc_registers.h>
+
+// The backup registers, and their accessors, of the STM32 peripheral library
+#include <pbl/soc/stm32/cmsis.h>
+
+// The stock firmware's layout: X and Y in one register, Z and a validity marker in the other.
+
+static void prv_forget_saved_calibration(void) {
+  RTC_WriteBackupRegister(MAG_Z_CORRECTION_VAL, 0U);
+}
+
+static void prv_save_calibration(const int16_t *corr) {
+  prv_forget_saved_calibration();
+  RTC_WriteBackupRegister(
+      MAG_XY_CORRECTION_VALS,
+      ((uint32_t)(uint16_t)corr[1] << BITS_PER_CORRECTION_VAL) | (uint16_t)corr[0]);
+  RTC_WriteBackupRegister(MAG_Z_CORRECTION_VAL,
+                          (VALID_CORR_MARKER << BITS_PER_CORRECTION_VAL) | (uint16_t)corr[2]);
+}
+
+static bool prv_load_calibration(int16_t *corr) {
+  const uint32_t xy = RTC_ReadBackupRegister(MAG_XY_CORRECTION_VALS);
+  const uint32_t z = RTC_ReadBackupRegister(MAG_Z_CORRECTION_VAL);
+  if ((z >> BITS_PER_CORRECTION_VAL) != VALID_CORR_MARKER) {
+    return false;
+  }
+  corr[0] = (int16_t)(xy & CORRECTION_VAL_MASK);
+  corr[1] = (int16_t)(xy >> BITS_PER_CORRECTION_VAL);
+  corr[2] = (int16_t)(z & CORRECTION_VAL_MASK);
+  return true;
+}
+#endif
+
 //////////////////////////////////////////////////////////////////////////////////
 // Private calibration handlers
 
@@ -237,6 +271,9 @@ void ecompass_handle_battery_state_change_event(PreciseBatteryChargeState new_st
     s_current_cal_status = CompassStatusDataInvalid;
     memset(s_active_corr, 0x00, sizeof(s_active_corr));
     s_saved_corr_present = false;
+#ifdef CONFIG_LEGACY_ECOMPASS_RTC_CAL
+    prv_forget_saved_calibration();
+#endif
   } else if (s_charger_plugged) {
     // we have unplugged the charger, initiate recalibration
     s_charger_plugged = false;
@@ -247,6 +284,14 @@ void ecompass_handle_battery_state_change_event(PreciseBatteryChargeState new_st
 
 void ecompass_service_init(void) {
   s_service_init = true;
+#ifdef CONFIG_LEGACY_ECOMPASS_RTC_CAL
+  // As stock: start from the calibration kept across the restart, to be confirmed by samples.
+  if (prv_load_calibration(s_saved_corr)) {
+    s_saved_corr_present = true;
+    s_current_cal_status = CompassStatusCalibrating;
+    memcpy(s_active_corr, s_saved_corr, sizeof(s_active_corr));
+  }
+#endif
   pbl_wallclock_work_init(&s_cb_info, prv_calibration_time_expired_cb);
 
   (void)pbl_mag_set_listener(MAG, &s_mag_listener);
@@ -337,6 +382,11 @@ void ecompass_service_handle(void) {
         s_active_corr[i] = new_corr[i];
       }
       s_saved_corr_present = true;
+#ifdef CONFIG_LEGACY_ECOMPASS_RTC_CAL
+      // The saved solution the next samples are matched against, as stock kept it.
+      memcpy(s_saved_corr, s_active_corr, sizeof(s_saved_corr));
+      prv_save_calibration(s_active_corr);
+#endif
     }
   }
 

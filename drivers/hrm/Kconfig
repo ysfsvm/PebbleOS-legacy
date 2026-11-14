@@ -42,3 +42,11 @@ module-str = Heart Rate Monitor
 source "subsys/logging/Kconfig.template.log_level"
 
 endif # HRM
+
+config HRM_SPO2
+    bool
+    default y if HRM_GH3X2X || HRM_QEMU || !LEGACY_WATCH
+    help
+      Blood oxygen (SpO2) settings: shown, synced with the phone and asked
+      for by the HRM manager. Core's boards keep them; on the legacy
+      watches only a sensor that measures SpO2 gets them.

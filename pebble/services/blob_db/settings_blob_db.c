@@ -115,7 +115,9 @@ static const char *s_syncable_settings[] = {
   "alarmsAppOpened",
   "hrmPreferences",
   "heartRatePreferences",
+#ifdef CONFIG_HRM_SPO2
   "spo2Preferences",
+#endif
 
   // Menu wrap around preferences
   "menuScrollWrapAround",

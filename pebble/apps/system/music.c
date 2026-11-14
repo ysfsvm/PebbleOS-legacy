@@ -33,9 +33,9 @@
 #include <shell/prefs.h>
 #include <shell/system_theme.h>
 
-// Album art needs a colour display with enough RAM for a full-screen 4-bpp cover; only emery and
-// gabbro qualify. Flint and lower never request it, so their layout stays text-only.
-#if defined(CONFIG_PLATFORM_EMERY) || defined(CONFIG_PLATFORM_GABBRO)
+// Album art needs a colour display with enough RAM for a 4-bpp cover
+// (CONFIG_SERVICE_IMAGING_PICTURES). Without it the layout stays text-only.
+#ifdef CONFIG_SERVICE_IMAGING_PICTURES
 #define MUSIC_ALBUM_ART_SUPPORTED 1
 #else
 #define MUSIC_ALBUM_ART_SUPPORTED 0
@@ -50,6 +50,19 @@
 // Unified round media layout: a full-screen backdrop, a progress arc along the bezel whose gap
 // hugs the action bar, a centred artist / title / times stack across the widest band of the
 // circle, and the state icon anchoring the bottom.
+#ifdef CONFIG_PLATFORM_CHALK
+// 180x180 (Time Round): two title lines, and smaller times on a wider band so they stay on one
+// line above the state icon.
+#define ART_ROUND_CLOCK_Y        4
+#define ART_ROUND_ARTIST_Y       26
+#define ART_ROUND_TITLE_Y        54
+#define ART_ROUND_TITLE_H        60
+#define ART_ROUND_TIMES_Y        116
+#define ART_ROUND_TEXT_MARGIN    40
+#define ART_ROUND_TIMES_MARGIN   30
+#define ART_ROUND_TIMES_FONT_KEY FONT_KEY_GOTHIC_18_BOLD
+#define ART_ROUND_ICON_CENTER_Y  (PBL_DISPLAY_HEIGHT - 22)
+#else
 #define ART_ROUND_CLOCK_Y  10
 #define ART_ROUND_ARTIST_Y (PBL_DISPLAY_HEIGHT / 2 - 76)
 #define ART_ROUND_TITLE_Y  (PBL_DISPLAY_HEIGHT / 2 - 42)
@@ -58,7 +71,10 @@
 // Symmetric side margin for the text stack: centred on the true display centre, and wide lines
 // still clear the action bar's crescent on the right.
 #define ART_ROUND_TEXT_MARGIN    48
+#define ART_ROUND_TIMES_MARGIN   ART_ROUND_TEXT_MARGIN
+#define ART_ROUND_TIMES_FONT_KEY FONT_KEY_GOTHIC_24_BOLD
 #define ART_ROUND_ICON_CENTER_Y  (PBL_DISPLAY_HEIGHT - 26)
+#endif
 #define ART_ROUND_RING_THICKNESS 7
 // Progress arc endpoints, degrees clockwise from 12 o'clock: it runs from the bottom edge of the
 // action bar around the bottom, left and top of the circle to the action bar's top edge. The
@@ -310,6 +326,12 @@ typedef struct {
   // and the track title moves down beside the tape. Art itself is owned by the music service; this
   // layer just blits it.
   Layer album_art_layer;
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+  // The app's own copy of the art (the kernel copy is freed as soon as it is copied), and the
+  // music_album_art_get_serial() it belongs to.
+  GBitmap *album_art;
+  uint8_t album_art_serial;
+#endif
   bool has_album_art;
   // Last now-playing generation we requested art for, so a track change re-fetches even if the
   // title/artist strings happen to match.
@@ -1268,9 +1290,9 @@ static void prv_draw_round_progress(GContext *ctx, const GRect *bounds) {
   if (data->position_buffer[0] && data->length_buffer[0]) {
     char times[2 * (sizeof(MUSIC_TIME_STR_MAX) - 1) + sizeof(" / ")];
     snprintf(times, sizeof(times), "%s / %s", data->position_buffer, data->length_buffer);
-    const GRect box = GRect(ART_ROUND_TEXT_MARGIN, ART_ROUND_TIMES_Y,
-                            PBL_DISPLAY_WIDTH - 2 * ART_ROUND_TEXT_MARGIN, 30);
-    GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    const GRect box = GRect(ART_ROUND_TIMES_MARGIN, ART_ROUND_TIMES_Y,
+                            PBL_DISPLAY_WIDTH - 2 * ART_ROUND_TIMES_MARGIN, 30);
+    GFont font = fonts_get_system_font(ART_ROUND_TIMES_FONT_KEY);
     if (data->has_album_art) {
       prv_draw_outlined_text(ctx, times, font, box, GTextOverflowModeFill, GTextAlignmentCenter);
     } else {
@@ -1283,8 +1305,12 @@ static void prv_draw_round_progress(GContext *ctx, const GRect *bounds) {
 #endif
 
 static void prv_album_art_update_proc(Layer *layer, GContext *ctx) {
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+  const GBitmap *art = ((MusicAppData *)app_state_get_user_data())->album_art;
+#else
   // Hold the art locked for the whole draw so the service can't free it mid-blit.
   const GBitmap *art = music_album_art_lock();
+#endif
   if (art && shell_prefs_get_music_show_album_art()) {
     // The phone renders the whole cover to the content width, so it fills the square; centre it in
     // case the box is a touch shorter than the cover.
@@ -1294,7 +1320,9 @@ static void prv_album_art_update_proc(Layer *layer, GContext *ctx) {
     graphics_context_set_compositing_mode(ctx, GCompOpAssign);
     graphics_draw_bitmap_in_rect(ctx, art, &dst);
   }
+#ifndef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
   music_album_art_unlock();
+#endif
 #if MUSIC_ROUND_MEDIA_LAYOUT
   // The layer doubles as the round backdrop: the arc and times draw with or without a cover.
   prv_draw_round_progress(ctx, &layer->bounds);
@@ -1495,10 +1523,48 @@ static void prv_artist_restore(MusicAppData *data) {
 //! Reflect the current art state: show/hide the cover, lay out the artist (outlined, over the art)
 //! and the scrolling title, and outline the clock so it stays legible over
 //! the cover. A full-window repaint clears the moved layers' old pixels.
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+//! Copy art that arrived into the app heap and free the kernel copy. Drops the app's copy when the
+//! service says the art changed (new track art, no art, or a server disconnect).
+static void prv_sync_album_art(MusicAppData *data) {
+  const GBitmap *art = music_album_art_lock();
+  const uint8_t serial = music_album_art_get_serial();
+  if (serial != data->album_art_serial) {
+    gbitmap_destroy(data->album_art);
+    data->album_art = nullptr;
+    data->album_art_serial = serial;
+  }
+  if (art) {
+    if (!data->album_art) {
+      GBitmap *copy = gbitmap_create_blank(art->bounds.size, gbitmap_get_format(art));
+      if (copy && (copy->row_size_bytes == art->row_size_bytes)) {
+        memcpy(copy->addr, art->addr, (size_t)art->row_size_bytes * art->bounds.size.h);
+        const uint8_t palette_size = gbitmap_get_palette_size(gbitmap_get_format(art));
+        if (palette_size > 0) {
+          memcpy(copy->palette, art->palette, palette_size * sizeof(GColor));
+        }
+        data->album_art = copy;
+      } else {
+        // No room in the app heap: show the text-only layout.
+        gbitmap_destroy(copy);
+      }
+    }
+    // Free the kernel copy even if ours failed: holding it can starve the kernel heap.
+    music_album_art_release_held();
+  }
+  music_album_art_unlock();
+}
+#endif
+
 static void prv_apply_art_appearance(MusicAppData *data) {
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+  prv_sync_album_art(data);
+  data->has_album_art = (data->album_art != nullptr) && shell_prefs_get_music_show_album_art();
+#else
   const GBitmap *art = music_album_art_lock();
   data->has_album_art = (art != nullptr) && shell_prefs_get_music_show_album_art();
   music_album_art_unlock();
+#endif
 
   layer_set_hidden(&data->album_art_layer, !prv_use_media_layout(data));
   if (prv_use_media_layout(data)) {
@@ -1760,6 +1826,10 @@ static void prv_music_event_handler(PebbleEvent *event, void *context) {
 // App boilerplate
 
 static void prv_handle_init(void) {
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+  music_album_art_set_in_use(true);
+#endif
+
   MusicAppData *data = app_malloc_check(sizeof(MusicAppData));
   *data = (MusicAppData){};
   app_state_set_user_data(data);
@@ -1830,6 +1900,11 @@ static void prv_handle_deinit(void) {
   // Detach the action bar so its touch-nav snapshot does not keep routing taps after the app exits.
   action_bar_layer_remove_from_window(&data->action_bar);
   pbl_i18n_free_all(data);
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+  gbitmap_destroy(data->album_art);
+  data->album_art = nullptr;
+  music_album_art_set_in_use(false);
+#endif
 }
 
 static void prv_main(void) {

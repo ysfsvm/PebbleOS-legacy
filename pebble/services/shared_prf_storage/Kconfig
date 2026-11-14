@@ -8,6 +8,17 @@ config SERVICE_SHARED_PRF_STORAGE
 
 if SERVICE_SHARED_PRF_STORAGE
 
+config SERVICE_SHARED_PRF_STORAGE_IMPORT_STOCK_V2
+    bool "Import the stock firmware's v2 shared PRF storage"
+    depends on BT
+    help
+      On boards whose recovery firmware is the stock one, which keeps its own
+      shared PRF storage in the older v2 layout (snowy): one struct at the
+      start of PART_STOCK_SHARED_PRF_STORAGE, with Bluetopia's legacy pairing
+      keys. Copy its root keys, name and pairing into this firmware's storage
+      when the identity root key differs from it, so the phone sees one watch
+      in both firmwares. The stock region is only read.
+
 module = SERVICE_SHARED_PRF_STORAGE
 module-str = Shared PRF storage
 source "subsys/logging/Kconfig.template.log_level"

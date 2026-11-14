@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2024 Google LLC
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 chalk_platform = {
     "NAME": "chalk",
     "MAX_APP_BINARY_SIZE": 0x10000,  # 64K
@@ -253,3 +255,16 @@ pebble_platforms = {
     "aplite": aplite_platform,
     "gabbro": gabbro_platform,
 }
+
+
+def unfreeze(name):
+    """Describe a frozen platform at the current SDK revision, for a firmware
+    that builds the platform and ships its SDK (CONFIG_SDK_UNFROZEN)."""
+    platform = pebble_platforms[name]
+    platform.pop("FROZEN_AT_REVISION", None)
+    platform["DEFINES"] = [d for d in platform["DEFINES"] if d != "PBL_SDK_FROZEN"]
+
+
+# The firmware build sets it with CONFIG_SDK_UNFROZEN.
+for _name in os.environ.get("PBL_SDK_UNFROZEN", "").split():
+    unfreeze(_name)

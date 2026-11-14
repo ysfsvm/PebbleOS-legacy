@@ -79,6 +79,15 @@ struct MusicServiceContext {
   //! re-request. @see music_album_art_is_current
   uint8_t album_art_generation;
 
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+  //! Bumped whenever the art the Music app should show changes: new art, a NoArt reply, or a
+  //! server connect/disconnect. The app drops its own copy when this changes.
+  uint8_t album_art_serial;
+
+  //! Whether the Music app is open. Art that arrives while it is closed is dropped.
+  bool album_art_in_use;
+#endif
+
   //! Generation token, bumped whenever the track (title/artist) changes. Used to discard album art
   //! that arrives after a track change. @see music_get_now_playing_generation
   uint8_t now_playing_generation;
@@ -220,6 +229,9 @@ bool music_set_connected_server(const MusicServerImplementation *implementation,
     // now_playing no longer drops art on a track change (see music_update_now_playing), so clear it
     // explicitly here: a connect/disconnect must not leave the previous session's art on screen.
     prv_free_album_art_locked();
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+    s_music_ctx.album_art_serial++;
+#endif
     music_update_now_playing(nullptr, 0, nullptr, 0, nullptr, 0);
     music_update_track_duration(0);
     const MusicPlayerStateUpdate state = {
@@ -586,6 +598,21 @@ void music_set_album_art(GBitmap *bitmap, uint8_t token) {
     return;
   }
 
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+  if (!s_music_ctx.album_art_in_use) {
+    // The Music app closed while the art was in flight: don't hold it on the kernel heap, the app
+    // requests it again when it opens.
+    if (bitmap) {
+      pbl_free(bitmap->addr);
+      pbl_free(bitmap->palette);
+      pbl_free(bitmap);
+    }
+    pbl_mutex_unlock(&s_music_ctx.mutex);
+    return;
+  }
+  s_music_ctx.album_art_serial++;
+#endif
+
   prv_free_album_art_locked();
   s_music_ctx.album_art = bitmap;
   // Record that we've now got a response (art, or NULL for NoArt) for this track, so the Music app
@@ -627,6 +654,33 @@ const GBitmap *music_album_art_lock(void) {
 void music_album_art_unlock(void) {
   pbl_mutex_unlock(&s_music_ctx.mutex);
 }
+
+#ifdef CONFIG_SERVICE_IMAGING_ALBUM_ART_APP_HEAP
+void music_album_art_set_in_use(bool in_use) {
+  pbl_mutex_lock(&s_music_ctx.mutex, PBL_FOREVER);
+  s_music_ctx.album_art_in_use = in_use;
+  if (!in_use) {
+    prv_free_album_art_locked();
+    // No art is held any more, so the next open must request it again.
+    s_music_ctx.album_art_generation = s_music_ctx.now_playing_generation - 1;
+  }
+  pbl_mutex_unlock(&s_music_ctx.mutex);
+}
+
+uint8_t music_album_art_get_serial(void) {
+  pbl_mutex_lock(&s_music_ctx.mutex, PBL_FOREVER);
+  const uint8_t serial = s_music_ctx.album_art_serial;
+  pbl_mutex_unlock(&s_music_ctx.mutex);
+  return serial;
+}
+
+void music_album_art_release_held(void) {
+  pbl_mutex_lock(&s_music_ctx.mutex, PBL_FOREVER);
+  // The generation and serial stay: the art is still current, the app keeps its own copy.
+  prv_free_album_art_locked();
+  pbl_mutex_unlock(&s_music_ctx.mutex);
+}
+#endif
 
 #ifdef CONFIG_SHELL
 #include <inttypes.h>

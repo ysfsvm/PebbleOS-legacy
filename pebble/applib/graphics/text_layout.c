@@ -285,6 +285,14 @@ bool word_init(GContext *ctx, Word *word, const TextBoxParams *const text_box_pa
       prev_cp = curr_cp;
     }
     curr_cp = next_cp;
+#ifdef CONFIG_LEGACY_WATCH
+    // A flag's second regional indicator was folded into the first, whose advance counted the
+    // whole glyph. Each counts as an ideograph, a word of its own: keep it in this word, or the
+    // next word measures it again as a flag and the lines no longer match what is drawn.
+    if (state == WordStateIdeograph && skip_ligature_member) {
+      continue;
+    }
+#endif
     state = word_state_update(state, curr_cp);
   } while (state != WordStateEnd);
 

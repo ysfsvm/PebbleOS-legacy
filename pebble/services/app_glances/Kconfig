@@ -5,3 +5,12 @@ config SERVICE_APP_GLANCES
     bool "App glances"
     help
       App-glances (launcher tile) service.
+
+config APP_GLANCE_ON_DEMAND
+    bool "Allocate the app glance only while it is reloaded"
+    help
+      Keep an app's glance (over 1 KiB) in its heap only while
+      app_glance_reload() runs, instead of in the app state for the whole
+      life of the app. For boards whose app state is otherwise too large
+      for the app runtime of their platform. A reload that finds no memory
+      logs an error and leaves the glance as it was.

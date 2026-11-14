@@ -127,7 +127,12 @@ typedef struct {
 
   JsMemoryAPIContext *js_memory_api_context;
 
+#ifdef CONFIG_APP_GLANCE_ON_DEMAND
+  //! Only while app_glance_reload() runs, in the app heap.
+  AppGlance *glance;
+#else
   AppGlance glance;
+#endif
 
   TextRenderState text_render_state;
 
@@ -340,7 +345,9 @@ PBL_NOINLINE void app_state_init(void) {
                                  s_app_state_ptr->initial_obstruction_origin_y);
 
 #if !defined(CONFIG_RECOVERY_FW)
+#ifndef CONFIG_APP_GLANCE_ON_DEMAND
   app_glance_service_init_glance(app_state_get_glance());
+#endif
 #endif
 
   s_app_state_ptr->current_timeline_item_action_source = TimelineItemActionSourceModalNotification;
@@ -490,8 +497,18 @@ UnobstructedAreaState *app_state_get_unobstructed_area_state(void) {
 }
 
 AppGlance *app_state_get_glance(void) {
+#ifdef CONFIG_APP_GLANCE_ON_DEMAND
+  return s_app_state_ptr->glance;
+#else
   return &s_app_state_ptr->glance;
+#endif
 }
+
+#ifdef CONFIG_APP_GLANCE_ON_DEMAND
+void app_state_set_glance(AppGlance *glance) {
+  s_app_state_ptr->glance = glance;
+}
+#endif
 
 WakeupHandler app_state_get_wakeup_handler(void) {
   return s_app_state_ptr->wakeup_handler;

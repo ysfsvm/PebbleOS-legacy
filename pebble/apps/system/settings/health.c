@@ -45,6 +45,7 @@ static int prv_hrm_interval_to_index(HRMonitoringInterval interval) {
   return prv_hrm_interval_to_index(HRMonitoringInterval_10Min);
 }
 
+#ifdef CONFIG_HRM_SPO2
 static const HRMonitoringInterval s_spo2_intervals[] = {
   HRMonitoringInterval_10Min,
   HRMonitoringInterval_30Min,
@@ -67,6 +68,7 @@ static int prv_spo2_interval_to_index(HRMonitoringInterval interval) {
   }
   return prv_spo2_interval_to_index(HRMonitoringInterval_10Min);
 }
+#endif // CONFIG_HRM_SPO2
 #endif
 
 enum SettingsHealthItem {
@@ -75,8 +77,10 @@ enum SettingsHealthItem {
 #ifdef CONFIG_HRM
   SettingsHealthHRMonitoringInterval,
   SettingsHealthHRActivityTracking,
+#ifdef CONFIG_HRM_SPO2
   SettingsHealthSpO2Enabled,
   SettingsHealthSpO2MonitoringInterval,
+#endif
 #endif
   NumSettingsHealthItems
 };
@@ -103,6 +107,7 @@ static void prv_hrm_interval_menu_push(SettingsHealthData *data) {
                             s_hrm_interval_labels, data);
 }
 
+#ifdef CONFIG_HRM_SPO2
 // SpO2 Interval option menu
 /////////////////////////////
 
@@ -123,6 +128,7 @@ static void prv_spo2_interval_menu_push(SettingsHealthData *data) {
                             ARRAY_LENGTH(s_spo2_interval_labels), true /* icons_enabled */,
                             s_spo2_interval_labels, data);
 }
+#endif // CONFIG_HRM_SPO2
 #endif
 
 // Menu Callbacks
@@ -172,6 +178,7 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
                                                                    : pbl_i18n_noop("Off");
       break;
     }
+#ifdef CONFIG_HRM_SPO2
     case SettingsHealthSpO2Enabled: {
       title = pbl_i18n_noop("SpO2");
       subtitle = activity_prefs_spo2_is_enabled() ? pbl_i18n_noop("On") : pbl_i18n_noop("Off");
@@ -184,6 +191,7 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
       subtitle = s_spo2_interval_labels[idx];
       break;
     }
+#endif // CONFIG_HRM_SPO2
 #endif
     default:
       pbl_panic();
@@ -218,12 +226,14 @@ static void prv_select_click_cb(SettingsCallbacks *context, uint16_t row) {
       activity_prefs_set_hrm_activity_tracking_enabled(
           !activity_prefs_hrm_activity_tracking_is_enabled());
       break;
+#ifdef CONFIG_HRM_SPO2
     case SettingsHealthSpO2Enabled:
       activity_prefs_set_spo2_enabled(!activity_prefs_spo2_is_enabled());
       break;
     case SettingsHealthSpO2MonitoringInterval:
       prv_spo2_interval_menu_push((SettingsHealthData *)context);
       break;
+#endif // CONFIG_HRM_SPO2
 #endif
     default:
       pbl_panic();

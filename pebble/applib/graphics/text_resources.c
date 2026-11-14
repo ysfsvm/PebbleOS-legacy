@@ -616,9 +616,24 @@ static const GlyphData *prv_get_glyph_in_font(FontCache *font_cache, Codepoint c
                                               const FontResource **font_res_out) {
   const FontInfo *owner = font_info;
   const FontResource *font_res = prv_font_res_for_codepoint(codepoint, font_info, &owner);
+#ifdef CONFIG_LEGACY_EMOJI_PACK
+  // The emoji font took over: its pack, the full set, comes first when installed. Looking in
+  // the bank's subset first costs a miss and a cache flush per glyph the subset lacks.
+  if (owner != font_info && owner->extended) {
+    font_res = &owner->extension;
+  }
+#endif
   prv_check_font_cache(font_cache, font_res);
   const GlyphData *data =
       prv_get_glyph_metadata_from_spi(codepoint, font_cache, font_res, need_bitmap);
+#ifdef CONFIG_LEGACY_EMOJI_PACK
+  // The pack misses: the bank's subset.
+  if (!data && owner != font_info && font_res == &owner->extension) {
+    prv_check_font_cache(font_cache, &owner->base);
+    data = prv_get_glyph_metadata_from_spi(codepoint, font_cache, &owner->base, need_bitmap);
+    font_res = &owner->base;
+  }
+#endif
   // Routed resource missed: try the font's other own resource. Classification is a lookup-order
   // hint, not a hard partition. Skipped when the emoji font took over.
   if (!data && owner == font_info) {

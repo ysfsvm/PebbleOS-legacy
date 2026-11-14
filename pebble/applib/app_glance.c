@@ -9,7 +9,13 @@
 #include <pbl/util/string.h>
 #include <pbl/util/uuid.h>
 
+#ifdef CONFIG_APP_GLANCE_ON_DEMAND
+#include <applib/app_logging.h>
+#endif
 #include <applib/app_time32.h>
+#ifdef CONFIG_APP_GLANCE_ON_DEMAND
+#include <applib/applib_malloc.auto.h>
+#endif
 #include <applib/template_string.h>
 #include <apps/system/launcher/default/app_glance_generic.h>
 #include <process_state/app_state/app_state.h>
@@ -101,7 +107,16 @@ AppGlanceResult app_glance_add_slice(AppGlanceReloadSession *session, AppGlanceS
 }
 
 void app_glance_reload(AppGlanceReloadCallback callback, void *context) {
+#ifdef CONFIG_APP_GLANCE_ON_DEMAND
+  AppGlance *glance = applib_malloc(sizeof(AppGlance));
+  if (!glance) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "No memory to reload the app glance");
+    return;
+  }
+  app_state_set_glance(glance);
+#else
   AppGlance *glance = app_state_get_glance();
+#endif
 
   Uuid current_app_uuid;
   sys_get_app_uuid(&current_app_uuid);
@@ -118,4 +133,9 @@ void app_glance_reload(AppGlanceReloadCallback callback, void *context) {
   }
 
   sys_app_glance_update(&current_app_uuid, glance);
+
+#ifdef CONFIG_APP_GLANCE_ON_DEMAND
+  app_state_set_glance(nullptr);
+  applib_free(glance);
+#endif
 }

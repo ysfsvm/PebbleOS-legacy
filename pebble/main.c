@@ -32,6 +32,9 @@
 #include <kernel/kernel_applib_state.h>
 #include <kernel/pebble_tasks.h>
 #include <kernel/ui/kernel_ui.h>
+#ifdef CONFIG_LEGACY_FACTORY_RESET_KEEPS_FIRMWARE
+#include <kernel/util/factory_reset.h>
+#endif
 #include <kernel/util/task_init.h>
 #include <mfg/mfg_info.h>
 #include <process_management/app_throttle.h>
@@ -41,6 +44,11 @@
 #include <system/bootbits.h>
 #include <system/firmware_storage.h>
 #include <system/version.h>
+
+#ifdef CONFIG_LEGACY_WATCH
+#include <pbl/drivers/timer/stm32_rtc.h>
+#endif
+
 #ifdef CONFIG_QEMU_SERIAL
 #include <comm/qemu/serial.h>
 #endif
@@ -62,6 +70,15 @@ static void init_drivers(void) {
   battery_init();
 
   (void)pbl_flash_partition_protect(PART_SAFE_FIRMWARE);
+
+#ifdef CONFIG_LEGACY_WATCH
+  // The factory-measured crystal frequency, which no release-build tool can read otherwise: it
+  // decides whether trimming the RTC with it is worthwhile.
+  PBL_LOG_INFO("MFG RTC frequency %" PRIu32 " mHz", mfg_info_get_rtc_freq());
+  if (stm32_rtc_restored_stock_config()) {
+    PBL_LOG_WRN("RTC was not in the stock configuration; restored it");
+  }
+#endif
 
   uint8_t vibe_cali = mfg_info_get_vibe_cali();
   if (vibe_cali != MFG_INFO_VIBE_CALI_INVALID) {
@@ -167,6 +184,9 @@ int main(void) {
 #endif
 
   init_drivers();
+#ifdef CONFIG_LEGACY_FACTORY_RESET_KEEPS_FIRMWARE
+  factory_reset_finish_pending_wipe();
+#endif
 
   clock_init();
 

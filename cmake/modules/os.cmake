@@ -83,6 +83,12 @@ endif()
 set(PBL_TOOLCHAIN_ENV ${CMAKE_COMMAND} -E env "PATH=${toolchain_bin}:$ENV{PATH}")
 include(extensions)
 include(platform)
+# A frozen SDK platform described at the current revision (tools/pebble_sdk_platform.py),
+# for the configure steps and the generators.
+if(CONFIG_SDK_UNFROZEN)
+  set(ENV{PBL_SDK_UNFROZEN} ${PBL_PLATFORM_NAME})
+  list(APPEND PBL_TOOLCHAIN_ENV "PBL_SDK_UNFROZEN=${PBL_PLATFORM_NAME}")
+endif()
 include(compiler)
 include(libc)
 include(linker)

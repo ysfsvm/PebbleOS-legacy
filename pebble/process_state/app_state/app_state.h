@@ -175,6 +175,11 @@ UnobstructedAreaState *app_state_get_unobstructed_area_state(void);
 
 AppGlance *app_state_get_glance(void);
 
+#ifdef CONFIG_APP_GLANCE_ON_DEMAND
+//! Set the glance app_glance_reload() fills, or NULL outside it.
+void app_state_set_glance(AppGlance *glance);
+#endif
+
 struct Layer;
 typedef struct Layer Layer;
 

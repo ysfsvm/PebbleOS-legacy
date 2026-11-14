@@ -43,12 +43,20 @@ typedef enum PlatformType {
 #if PBL_BW
 #define DISPLAY_FRAMEBUFFER_BYTES \
   (ROUND_TO_MOD_CEIL(PBL_DISPLAY_WIDTH, 32) / 8 * PBL_DISPLAY_HEIGHT)
+#elifdef CONFIG_PLATFORM_CHALK
+// Circular framebuffer of chalk apps: all visible pixels plus 76 padding bytes before the first
+// and after the last row (g_gbitmap_legacy_3x_data_row_infos).
+#define DISPLAY_FRAMEBUFFER_BYTES 25944
 #else
 #define DISPLAY_FRAMEBUFFER_BYTES (PBL_DISPLAY_WIDTH * PBL_DISPLAY_HEIGHT)
 #endif
 
 // Variant boards should go before their base platforms, as they define the base platform too.
-#ifdef CONFIG_PLATFORM_EMERY
+#ifdef CONFIG_PLATFORM_BASALT
+#define PBL_PLATFORM_TYPE_CURRENT PlatformTypeBasalt
+#elifdef CONFIG_PLATFORM_CHALK
+#define PBL_PLATFORM_TYPE_CURRENT PlatformTypeChalk
+#elifdef CONFIG_PLATFORM_EMERY
 #define PBL_PLATFORM_TYPE_CURRENT PlatformTypeEmery
 #elifdef CONFIG_PLATFORM_FLINT
 #define PBL_PLATFORM_TYPE_CURRENT PlatformTypeFlint

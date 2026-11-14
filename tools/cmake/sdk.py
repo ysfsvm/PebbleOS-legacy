@@ -144,6 +144,10 @@ def main():
     parser.add_argument("--platform", required=True, help="SDK platform name")
     parser.add_argument("--work-dir", required=True,
                         help="Scratch directory the bundled waf is built in")
+    parser.add_argument("--unfrozen", action="store_true",
+                        help="Describe a frozen platform at the current revision")
+    parser.add_argument("--glyph-subset", action="store_true",
+                        help="Ship the font tool of the glyphSubset resource key")
     args = parser.parse_args()
 
     common = os.path.join(args.output, "common")
@@ -179,6 +183,13 @@ def main():
     for tool in SHARED_TOOLS:
         _copy(os.path.join(REPO_ROOT, "tools", tool),
               os.path.join(common, "tools", tool))
+    if args.glyph_subset:
+        _copy(os.path.join(REPO_ROOT, "tools", "font", "pbf_subset.py"),
+              os.path.join(common, "tools", "font", "pbf_subset.py"))
+    if args.unfrozen:
+        # Apps build against the revision the firmware exports, as it does.
+        with open(os.path.join(common, "tools", "pebble_sdk_platform.py"), "a") as f:
+            f.write(f"\nunfreeze({args.platform!r})\n")
     # How the CMake app build drives the resource generators, as the
     # firmware build does.
     _copy(os.path.join(REPO_ROOT, "tools", "cmake", "wafshim.py"),

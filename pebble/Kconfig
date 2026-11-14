@@ -196,6 +196,21 @@ config SHELL_SDK
 
 endchoice
 
+config SDK_UNFROZEN
+    bool "SDK of a frozen platform at the current revision"
+    help
+      The SDK of a platform tools/pebble_sdk_platform.py keeps frozen at an
+      old revision (basalt, chalk, diorite) is generated and packaged at the
+      current revision, as this firmware exports it, so apps can link
+      against the packaged libpebble.a. Such apps need this firmware; apps
+      built with the frozen SDK run on it too.
+
+config SDK_FONT_GLYPH_SUBSET
+    bool "Ship the glyphSubset font tool in the SDK"
+    help
+      Package tools/font/pbf_subset.py, which the font resource generator
+      uses for the glyphSubset key, with the SDK.
+
 menu "Debug & instrumentation"
 
 config QEMU_SERIAL
