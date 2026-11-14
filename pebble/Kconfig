@@ -53,6 +53,14 @@ config HRM_GH3X2X_FACTORY_TEST
     default y if MFG
     depends on HRM && GH3X2X_ALGO
 
+config LEGACY_EMOJI_PACK
+    default n if RECOVERY_FW
+    depends on LEGACY_WATCH
+
+config LEGACY_FACTORY_RESET_KEEPS_FIRMWARE
+    default !RECOVERY_FW
+    depends on LEGACY_WATCH && SOC_STM32F4
+
 config KERNEL_STACK_GUARD
     default y
     depends on ARCH_HAS_STACK_GUARD
@@ -153,6 +161,24 @@ config MMAP_RESOURCES
     help
       Serve read-only system resources as direct pointers into
       memory-mapped flash instead of copying them out.
+
+config MMAP_RESOURCES_GUARDED
+    bool
+    default y if MMAP_RESOURCES && FLASH_S29VS
+    help
+      The flash is readable through its memory window only while it is
+      idle and in use (S29VS): count the tasks holding mapped bytes, give
+      no pointers to unprivileged code, and hand out copies while system
+      resources are written.
+
+config FIRMWARE_LEGACY_CRC
+    bool "Firmware descriptions use the legacy STM32 CRC"
+    depends on !PBLBOOT
+    help
+      The checksum in a firmware image's description (in flash, ahead of
+      the image) is the legacy STM32 CRC, not CRC32, as the stock
+      bootloader and recovery firmware of older watches (snowy) expect.
+      Used to check the recovery image and to write staged updates.
 
 endmenu
 

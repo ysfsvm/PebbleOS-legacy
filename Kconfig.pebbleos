@@ -151,6 +151,12 @@ config BOARD_PARTITIONS_SINGLE_SLOT
     help
       The board uses the flash partitions of include/pbl/board/partitions_single_slot.h.
 
+config BOARD_PARTITIONS_SNOWY
+    bool
+    help
+      The board's devicetree has the stock Pebble Time partitions, whose
+      debug-db partition sits on the flash's 32 KiB bottom boot sectors.
+
 # Source the active board's Kconfig and its per-board defaults; kconfig.py
 # exports $(BOARD) and $(BOARD_REVISION) from the --board argument.
 rsource "boards/$(BOARD)/Kconfig"
@@ -186,6 +192,7 @@ config QEMU_MACHINE
       boards/<board>/Kconfig.defconfig.
 
 rsource "Kconfig.platform"
+rsource "Kconfig.legacy"
 
 # App RAM sizes for each SDK app execution environment (2x/3x/4x) supported by
 # the model. For each environment, SEGMENT is the RAM given to the app itself
@@ -251,18 +258,22 @@ config APP_RAM_GABBRO_RUNTIME_SIZE
 
 config APP_RAM_2X_SEGMENT_SIZE
     int
+    default APP_RAM_APLITE_SEGMENT_SIZE if PLATFORM_BASALT
     default APP_RAM_APLITE_SEGMENT_SIZE if PLATFORM_EMERY
     default APP_RAM_APLITE_SEGMENT_SIZE if PLATFORM_FLINT
     default 0
 
 config APP_RAM_2X_RUNTIME_SIZE
     int
+    default APP_RAM_APLITE_RUNTIME_SIZE if PLATFORM_BASALT
     default APP_RAM_APLITE_RUNTIME_SIZE if PLATFORM_EMERY
     default APP_RAM_APLITE_RUNTIME_SIZE if PLATFORM_FLINT
     default 0
 
 config APP_RAM_3X_SEGMENT_SIZE
     int
+    default APP_RAM_BASALT_SEGMENT_SIZE if PLATFORM_BASALT
+    default APP_RAM_CHALK_SEGMENT_SIZE if PLATFORM_CHALK
     default APP_RAM_BASALT_SEGMENT_SIZE if PLATFORM_EMERY
     default APP_RAM_APLITE_SEGMENT_SIZE if PLATFORM_FLINT
     default APP_RAM_CHALK_SEGMENT_SIZE if PLATFORM_GABBRO
@@ -270,6 +281,8 @@ config APP_RAM_3X_SEGMENT_SIZE
 
 config APP_RAM_3X_RUNTIME_SIZE
     int
+    default APP_RAM_BASALT_RUNTIME_SIZE if PLATFORM_BASALT
+    default APP_RAM_CHALK_RUNTIME_SIZE if PLATFORM_CHALK
     default APP_RAM_BASALT_RUNTIME_SIZE if PLATFORM_EMERY
     default APP_RAM_APLITE_RUNTIME_SIZE if PLATFORM_FLINT
     default APP_RAM_CHALK_RUNTIME_SIZE if PLATFORM_GABBRO
@@ -277,6 +290,8 @@ config APP_RAM_3X_RUNTIME_SIZE
 
 config APP_RAM_4X_SEGMENT_SIZE
     int
+    default APP_RAM_BASALT_SEGMENT_SIZE if PLATFORM_BASALT
+    default APP_RAM_CHALK_SEGMENT_SIZE if PLATFORM_CHALK
     default APP_RAM_EMERY_SEGMENT_SIZE if PLATFORM_EMERY
     default APP_RAM_FLINT_SEGMENT_SIZE if PLATFORM_FLINT
     default APP_RAM_GABBRO_SEGMENT_SIZE if PLATFORM_GABBRO
@@ -284,6 +299,8 @@ config APP_RAM_4X_SEGMENT_SIZE
 
 config APP_RAM_4X_RUNTIME_SIZE
     int
+    default APP_RAM_BASALT_RUNTIME_SIZE if PLATFORM_BASALT
+    default APP_RAM_CHALK_RUNTIME_SIZE if PLATFORM_CHALK
     default APP_RAM_EMERY_RUNTIME_SIZE if PLATFORM_EMERY
     default APP_RAM_FLINT_RUNTIME_SIZE if PLATFORM_FLINT
     default APP_RAM_GABBRO_RUNTIME_SIZE if PLATFORM_GABBRO
@@ -313,6 +330,37 @@ config SRAM_SIZE
     help
       Size of the SRAM available to PebbleOS (kernel + worker + app).
       Defaulted per SoC in soc/*/Kconfig.defconfig.
+
+config CCM_BASE
+    hex
+    default 0
+    help
+      Base address of core-coupled RAM. Defaulted per SoC in
+      soc/*/Kconfig.defconfig.
+
+config CCM_SIZE
+    hex
+    default 0
+    help
+      Size of core-coupled RAM. When non-zero the kernel thread stacks and
+      the kernel heap live there instead of in SRAM. DMA cannot reach it,
+      so DMA buffers must not be on a kernel stack or the kernel heap.
+
+config ISR_STACK_CCM
+    bool "ISR stack in core-coupled RAM"
+    depends on CCM_SIZE != 0
+    help
+      Put the interrupt stack in core-coupled RAM, with the kernel stacks,
+      leaving that much more SRAM to the kernel and that much less kernel
+      heap.
+
+config NIMBLE_POOLS_SRAM
+    bool "NimBLE buffer pools in SRAM"
+    depends on CCM_SIZE != 0
+    help
+      Keep NimBLE's transport and msys buffer pools (about 9K) in SRAM when
+      the rest of its zeroed data goes to core-coupled RAM, leaving that
+      much more kernel heap. For boards with SRAM to spare.
 
 config FLASH_BASE
     hex

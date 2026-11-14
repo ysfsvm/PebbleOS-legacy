@@ -23,6 +23,12 @@ config SRAM_BASE
 config SRAM_SIZE
     default 0x30000 if SOC_STM32F439
 
+config CCM_BASE
+    default 0x10000000 if SOC_STM32F439
+
+config CCM_SIZE
+    default 0x10000 if SOC_STM32F439
+
 config NUM_IRQS
     default 91 if SOC_STM32F439
 

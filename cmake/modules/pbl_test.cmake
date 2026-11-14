@@ -95,6 +95,10 @@ function(_pbl_test_platform_defines platform out_defines out_bitdepth)
   else()
     set(bitdepth 1)
   endif()
+  # Kconfig default of SERVICE_IMAGING_PICTURES: album art and pictures on these platforms.
+  if(platform STREQUAL "emery" OR platform STREQUAL "gabbro")
+    list(APPEND defines CONFIG_SERVICE_IMAGING_PICTURES=1)
+  endif()
 
   # app_manager.c sizes app segments from these; the values are the ones
   # the old sdk_memory_limits.auto.h test override carried.

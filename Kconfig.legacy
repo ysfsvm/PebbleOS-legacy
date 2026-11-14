@@ -1,0 +1,145 @@
+# SPDX-FileCopyrightText: 2026 retake
+# SPDX-License-Identifier: Apache-2.0
+
+# Changes the legacy watches make to code Core's own boards share. The
+# legacy boards select LEGACY_WATCH; without it every option here keeps
+# Core's behaviour.
+
+config LEGACY_WATCH
+    bool
+    help
+      The board is a legacy Pebble watch (Pebble Time, Time Steel, Time
+      Round, Pebble 2), outside Core's own range.
+
+menu "Legacy watch changes to shared code"
+    depends on LEGACY_WATCH
+
+config LEGACY_BT_PASSKEY_DISPLAY
+    bool "LE legacy pairing with a displayed passkey"
+    default y
+    help
+      Answer a passkey display request (LE legacy pairing, as with
+      controllers without Secure Connections) with a random passkey for
+      the user to type on the phone, and end pairing on actions the watch
+      cannot answer. Let a bonded phone pair again while the watch is
+      pairable, so keys that no longer match (e.g. after pairing in the
+      stock recovery firmware) can be replaced; refuse it otherwise.
+
+config LEGACY_BT_NAME_ON_FIRST_PAIRING
+    bool "Keep the phone's name on the first pairing"
+    default y
+    help
+      Store the phone's name read before the bonding existed, and find the
+      connection by its resolved identity address when the read completes.
+
+config LEGACY_BT_HOST_RESET_RECOVERY
+    bool "Restore the address after a host reset"
+    default y
+    help
+      Set the identity address again when the NimBLE host resets and
+      resyncs, and log repeated host resets and advertising attempts
+      without an address as a count.
+
+config LEGACY_BT_STOCK_PAIRINGS
+    bool "Delete the stock firmware's pairings"
+    default y if BT_CONTROLLER_CC2564
+    help
+      Let the pairings the stock firmware of the CC2564 watches stored, in
+      a shorter record layout, be deleted from the settings.
+
+config LEGACY_BT_CONTROLLER_OFF_WHEN_STOPPED
+    bool "Hold the Bluetooth controller in shutdown while Bluetooth is off"
+    depends on BT_CONTROLLER_CC2564
+    default y
+    help
+      In airplane mode and while the watch lies still (stationary mode) the
+      host stops; hold the CC2564 in shutdown then, about 1 uA instead of
+      tens in deep sleep, and boot it with its init script (about a second)
+      when Bluetooth comes back on.
+
+config LEGACY_ECOMPASS_RTC_CAL
+    bool "Keep the compass calibration across restarts"
+    depends on SOC_STM32F4 && MAG
+    default y
+    help
+      Keep the compass calibration in the RTC backup registers, as the
+      stock firmware did (same registers and layout), so a restart does not
+      throw it away: it lasts until the battery runs out or a charger is
+      plugged in (which resets it, as before).
+
+config LEGACY_EMOJI_PACK
+    bool "Full emoji set from a pack file"
+    help
+      The board's resource bank holds only a subset of the colour emoji.
+      Draw from the /emoji file when it is installed: a resource pack with
+      the full emoji fonts that the board's resource map declares as the
+      emoji fonts' extensions. The bank's subset serves what the pack
+      misses, and everything without the pack.
+
+config LEGACY_FACTORY_RESET_KEEPS_FIRMWARE
+    bool "Factory reset wipes the filesystem but keeps the firmware"
+    depends on SOC_STM32F4
+    help
+      Core's factory reset boots the recovery firmware after the wipe, as
+      the stock firmware did. On these watches the recovery firmware is
+      the stock one and the phone app then installs the stock firmware
+      over it, so a factory reset would also undo this firmware. Keep the
+      firmware and wipe the filesystem only; a reset during the wipe
+      finishes it at the next boot (RTC backup register).
+
+config LEGACY_LANG_PACK_STOCK_LAYOUT
+    bool "Read language packs built for the stock firmware"
+    default y
+    help
+      Language packs built for the stock firmware (the community packs the
+      phone app offers where Core has none) hold 19 resources, without the
+      two Gothic 36 extensions and the LECO fonts Core's layout adds. Read
+      their Bitham, Roboto and Droid fonts from where they are, instead of
+      two entries off.
+
+config LEGACY_VOICE_ENCODER_IDLE_FREE
+    bool "Free the voice encoder between sessions"
+    default y
+    help
+      Give the Speex encoder's kernel heap (over 8 KB) back when a
+      dictation or app microphone session ends, instead of keeping it
+      from the first session on.
+
+config LEGACY_ASSERT_CALLER_LR
+    bool "libc assert() records its caller"
+    default y
+    help
+      Record the caller of a failed libc assert() as the reboot reason's
+      address, rather than assert() itself.
+
+endmenu
+
+config BT_LE_IDLE_SLAVE_LATENCY
+    int "Slave latency while idle"
+    default 30 if LEGACY_WATCH
+    default 4
+    help
+      Connection events the watch may skip at the slow response time
+      (and at the middle one, unless BT_LE_MIDDLE_SLAVE_LATENCY says
+      otherwise).
+
+config BT_LE_MIDDLE_SLAVE_LATENCY
+    int "Slave latency at the middle response time"
+    default 2 if LEGACY_WATCH
+    default BT_LE_IDLE_SLAVE_LATENCY
+    help
+      Connection events the watch may skip at the middle response time,
+      which music control, file transfers and apps asking for a reduced
+      sniff interval request. The stock firmware used 2; at the idle
+      latency of the legacy boards (30) each phone message waited up to
+      about a second.
+
+config BT_LE_IDLE_INTERVAL_MIN
+    int "Minimum connection interval while idle (1.25 ms units)"
+    default 24 if LEGACY_WATCH
+    default 36
+
+config BT_LE_IDLE_INTERVAL_MAX
+    int "Maximum connection interval while idle (1.25 ms units)"
+    default 36 if LEGACY_WATCH
+    default 48

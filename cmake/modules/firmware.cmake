@@ -239,6 +239,22 @@ function(pbl_link_firmware)
     VERBATIM
   )
 
+  # --- Emoji pack ---------------------------------------------------------
+
+  # The full emoji fonts as the /emoji pack file, built with every bundle so
+  # the pack always matches the firmware's fonts.
+  if(CONFIG_LEGACY_EMOJI_PACK)
+    set(emoji_pack ${PROJECT_BINARY_DIR}/emoji_${PBL_BOARD_NORMALIZED}.pbpack)
+    add_custom_target(emoji_pack
+      COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_BASE}/tools/emoji_pack.py
+              ${emoji_pack} --fonts ${PBL_BASE}/resources/normal/base/pbf
+      WORKING_DIRECTORY ${PBL_BASE}
+      COMMENT "Packing the emoji fonts"
+      VERBATIM
+    )
+    add_dependencies(bundle emoji_pack)
+  endif()
+
   # --- Software bill of materials ----------------------------------------
 
   # Built on request only: it reads ninja's dependency logs, so it needs

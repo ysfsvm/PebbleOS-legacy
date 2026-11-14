@@ -6,6 +6,13 @@
 
 choice
     prompt "SDK platform"
+config PLATFORM_BASALT
+    bool "Basalt"
+    select PLATFORM_COLOR
+config PLATFORM_CHALK
+    bool "Chalk"
+    select PLATFORM_COLOR
+    select PLATFORM_ROUND
 config PLATFORM_EMERY
     bool "Emery"
     select PLATFORM_COLOR
@@ -32,12 +39,16 @@ config PLATFORM_ROUND
 
 config PLATFORM_DISPLAY_WIDTH
     int
+    default 144 if PLATFORM_BASALT
+    default 180 if PLATFORM_CHALK
     default 200 if PLATFORM_EMERY
     default 144 if PLATFORM_FLINT
     default 260 if PLATFORM_GABBRO
 
 config PLATFORM_DISPLAY_HEIGHT
     int
+    default 168 if PLATFORM_BASALT
+    default 180 if PLATFORM_CHALK
     default 228 if PLATFORM_EMERY
     default 168 if PLATFORM_FLINT
     default 260 if PLATFORM_GABBRO
@@ -46,22 +57,22 @@ config PLATFORM_DISPLAY_HEIGHT
 
 config PLATFORM_LEGACY_2X_DISPLAY_WIDTH
     int
-    default 180 if PLATFORM_GABBRO
+    default 180 if PLATFORM_GABBRO || PLATFORM_CHALK
     default 144
 
 config PLATFORM_LEGACY_2X_DISPLAY_HEIGHT
     int
-    default 180 if PLATFORM_GABBRO
+    default 180 if PLATFORM_GABBRO || PLATFORM_CHALK
     default 168
 
 config PLATFORM_LEGACY_3X_DISPLAY_WIDTH
     int
-    default 180 if PLATFORM_GABBRO
+    default 180 if PLATFORM_GABBRO || PLATFORM_CHALK
     default 144
 
 config PLATFORM_LEGACY_3X_DISPLAY_HEIGHT
     int
-    default 180 if PLATFORM_GABBRO
+    default 180 if PLATFORM_GABBRO || PLATFORM_CHALK
     default 168
 
 # Animation timing apps see.
