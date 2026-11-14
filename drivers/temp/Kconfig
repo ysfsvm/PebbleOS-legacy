@@ -29,6 +29,12 @@ config TEMP_SF32LB
     help
       Support for the SiFli SF32LB temperature sensor.
 
+config TEMP_STM32
+    bool "ST STM32 internal sensor"
+    default y if SOC_STM32F4
+    help
+      The STM32F4 internal temperature sensor, read through ADC1.
+
 config TEMP_SIM
     bool "Simulator"
     default y if SOC_QEMU_PEBBLE || SOC_POSIX

@@ -55,12 +55,10 @@ static const char *s_syncable_settings[] = {
 #ifdef CONFIG_ORIENTATION_MANAGER
   "displayOrientationLeftHanded",
 #endif
-
 // Motion preferences
 #ifdef CONFIG_ACCEL_SENSITIVITY
   "motionSensitivity",
 #endif
-
   // Backlight preferences
   "lightEnabled",
   "lightAmbientSensorEnabled",
@@ -68,7 +66,9 @@ static const char *s_syncable_settings[] = {
   "lightIntensity",
   "lightMotion",
   "lightTouch",
+#ifndef CONFIG_ALS_THRESHOLD_LOCAL
   "lightAmbientThreshold",
+#endif
 #ifdef CONFIG_DYNAMIC_BACKLIGHT
   "lightDynamicMode",
 #endif

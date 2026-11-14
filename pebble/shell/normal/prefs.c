@@ -1227,10 +1227,9 @@ void shell_prefs_init(void) {
     s_backlight_preset = BacklightPreset_Advanced;
   }
 
-#if defined(CONFIG_ALS_W1160)
-  // One-time: the W1160 scale rework left old-scale ambient thresholds far below
-  // current readings (backlight stuck off). Drop any stored override so the
-  // device follows the new board default.
+#if defined(CONFIG_ALS_W1160) || defined(CONFIG_ALS_THRESHOLD_LOCAL)
+  // One-time: the W1160 scale rework, or a threshold synced from another watch model, can leave
+  // the stored threshold far below current readings. Drop it to follow the board default.
   if (!s_als_threshold_migrated_v1) {
     s_backlight_ambient_threshold = CONFIG_SERVICE_LIGHT_DARK_THRESHOLD;
     struct pbl_settings_file mfile = {};
@@ -1242,10 +1241,11 @@ void shell_prefs_init(void) {
     const bool migrated = true;
     prv_pref_set(PREF_KEY_ALS_THRESHOLD_MIGRATED_V1, &migrated, sizeof(migrated));
   }
-
-  // One-time: the ALS pipeline switched from raw counts to lux, so stored
-  // threshold overrides are in the wrong unit (~5x too high). Drop them so
-  // the device follows the new lux board defaults.
+#endif
+#if defined(CONFIG_ALS_W1160) || \
+    (defined(CONFIG_ALS_STM32_ADC) && defined(CONFIG_DYNAMIC_BACKLIGHT))
+  // One-time: the ALS pipeline switched from raw counts to lux (W1160 ~5x, the snowy ADC sensor
+  // ~3x), so stored overrides are in the wrong unit. Drop them to follow the lux board defaults.
   if (!s_als_threshold_migrated_v2) {
     s_backlight_ambient_threshold = CONFIG_SERVICE_LIGHT_DARK_THRESHOLD;
     struct pbl_settings_file v2file = {};

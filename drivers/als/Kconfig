@@ -31,6 +31,30 @@ config ALS_W1160
     help
       Support for the Sensortek W1160 ambient light sensor.
 
+config ALS_STM32_ADC
+    bool "Analog sensor on the STM32 ADC"
+    depends on SOC_STM32F4
+    help
+      Photodiode read through ADC1 against VREFINT, powered by a GPIO
+      (silk).
+
+config ALS_THRESHOLD_LOCAL
+    bool "Keep the dark threshold off the phone sync"
+    help
+      Do not sync the backlight's ambient light threshold with the phone,
+      and drop a stored one once. For sensors whose scale differs a lot
+      from other watches (the original Pebble's reads ~235 in the dark), so
+      a value synced from another watch model cannot keep the backlight off.
+
+config ALS_LUX_TABLE
+    bool "Convert levels to lux with a board table"
+    depends on ALS_STM32_ADC
+    help
+      Convert raw levels to lux by interpolating between calibration points
+      in the sensor's pbl_als_scale table, for a sensor whose response
+      is far from linear (a phototransistor that flattens out in bright
+      light), instead of the linear offset/num/den conversion.
+
 config ALS_SIM
     bool "Simulator"
     default y if SOC_QEMU_PEBBLE || SOC_POSIX
@@ -43,6 +67,7 @@ config ALS_BITS
     default 12 if ALS_OPT3001
     default 16 if ALS_W1160
     default 12 if ALS_SIM
+    default 12 if ALS_STM32_ADC
     help
       Number of bits in the ambient light sensor reading. Used to derive
       PBL_ALS_LEVEL_MAX, which bounds the dark/backlight thresholds

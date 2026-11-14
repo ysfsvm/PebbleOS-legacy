@@ -49,6 +49,16 @@ static const uint32_t PBL_ALS_LEVEL_MAX = (1U << CONFIG_ALS_BITS);
 
 struct pbl_als;
 
+#ifdef CONFIG_ALS_LUX_TABLE
+/** @brief Lux calibration point. */
+struct pbl_als_lux_point {
+  /** Raw level. */
+  uint16_t level;
+  /** Lux at that level. */
+  uint16_t lux;
+};
+#endif
+
 /**
  * @brief Raw count to lux calibration: lux = (raw - offset) * num / den.
  *
@@ -61,6 +71,15 @@ struct pbl_als_scale {
   uint32_t num;
   /** Denominator. */
   uint32_t den;
+#ifdef CONFIG_ALS_LUX_TABLE
+  /**
+   * Optional points by rising level, interpolated between, used instead of the linear scale;
+   * levels outside them take the end points.
+   */
+  const struct pbl_als_lux_point *table;
+  /** Number of points in @c table. */
+  uint8_t table_len;
+#endif
 };
 
 /** @brief Ambient light sensor driver operations, called with the device lock held. */
