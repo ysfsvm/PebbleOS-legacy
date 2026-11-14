@@ -83,3 +83,11 @@ config DCACHE_LINE_SIZE
 	default 32 if CPU_STAR_MC1
 	help
 	  Data cache line size in bytes.
+
+config ARCH_CYCLE_SOFT_FALLBACK
+	bool "Software cycle counter without a DWT"
+	default y if SOC_STM32F4
+	help
+	  Count cycles in software when the DWT cycle counter cannot be
+	  enabled, as on the QEMU Pebble machines, so busy-waits still end.
+	  Hardware with a DWT is unaffected.

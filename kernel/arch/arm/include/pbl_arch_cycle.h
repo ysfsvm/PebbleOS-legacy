@@ -15,6 +15,10 @@
 #define ARCH_DWT_CYCCNT         0xE0001004UL
 #define ARCH_DWT_CTRL_CYCCNTENA (1UL << 0)
 
+#ifdef CONFIG_ARCH_CYCLE_SOFT_FALLBACK
+uint32_t arch_cycle_soft_get_32(void);
+#endif
+
 // Enabled on first use and re-enabled if a low power mode or a debugger turned it off, either
 // the counter or the trace block it belongs to. Inline throughout: code running from RAM while
 // the flash is unreadable counts cycles too.
@@ -23,6 +27,12 @@ static PBL_ALWAYS_INLINE uint32_t arch_cycle_get_32(void) {
       (arch_readl(ARCH_DWT_CTRL) & ARCH_DWT_CTRL_CYCCNTENA) == 0U) {
     arch_writel(arch_readl(ARCH_DEMCR) | ARCH_DEMCR_TRCENA, ARCH_DEMCR);
     arch_writel(arch_readl(ARCH_DWT_CTRL) | ARCH_DWT_CTRL_CYCCNTENA, ARCH_DWT_CTRL);
+#ifdef CONFIG_ARCH_CYCLE_SOFT_FALLBACK
+    // An emulator without the DWT: the enable does not stick
+    if ((arch_readl(ARCH_DWT_CTRL) & ARCH_DWT_CTRL_CYCCNTENA) == 0U) {
+      return arch_cycle_soft_get_32();
+    }
+#endif
   }
   return arch_readl(ARCH_DWT_CYCCNT);
 }

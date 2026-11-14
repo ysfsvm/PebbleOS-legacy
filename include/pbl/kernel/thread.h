@@ -177,9 +177,16 @@ struct pbl_thread {
  * @param name Name of the stack array.
  * @param size Usable stack size in bytes.
  */
+#if CONFIG_CCM_SIZE
+// Thread stacks live in core-coupled RAM (.ccm_stacks), see CONFIG_CCM_SIZE.
+#define PBL_THREAD_STACK_DEFINE(name, size)                                 \
+  static uint8_t name[(size) + CONFIG_KERNEL_STACK_GUARD_SIZE] PBL_ALIGNED( \
+      CONFIG_KERNEL_STACK_ALIGN) PBL_SECTION(".ccm_stacks")
+#else
 #define PBL_THREAD_STACK_DEFINE(name, size)                                 \
   static uint8_t name[(size) + CONFIG_KERNEL_STACK_GUARD_SIZE] PBL_ALIGNED( \
       CONFIG_KERNEL_STACK_ALIGN)
+#endif
 
 /**
  * @brief Create and start a thread.

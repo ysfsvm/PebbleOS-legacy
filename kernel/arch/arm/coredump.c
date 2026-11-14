@@ -34,6 +34,11 @@ extern uint8_t __RAM_start__;
 extern uint8_t __RAM_size__;
 
 PBL_COREDUMP_REGION_DEFINE(ram, &__RAM_start__, (size_t)&__RAM_size__);
+#if CONFIG_CCM_SIZE
+extern uint8_t __CCM_start__;
+extern uint8_t __CCM_size__;
+PBL_COREDUMP_REGION_DEFINE(ccm, &__CCM_start__, (size_t)&__CCM_size__);
+#endif
 PBL_COREDUMP_REGION_DEFINE(nvic_iser, (const void *)ARCH_NVIC_ISER(0), ARCH_NVIC_WORDS * 4U);
 PBL_COREDUMP_REGION_DEFINE(nvic_ispr, (const void *)ARCH_NVIC_ISPR(0), ARCH_NVIC_WORDS * 4U);
 PBL_COREDUMP_REGION_DEFINE(nvic_iabr, (const void *)ARM_NVIC_IABR(0), ARCH_NVIC_WORDS * 4U);

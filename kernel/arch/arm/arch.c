@@ -207,6 +207,19 @@ bool arch_in_isr(void) {
   return mcu_state_is_isr();
 }
 
+#ifdef CONFIG_ARCH_CYCLE_SOFT_FALLBACK
+// Roughly the cycles a busy-wait iteration takes, so waits end at about the right time
+#define SOFT_CYCLES_PER_READ 16U
+
+PBL_SECTION_RAM uint32_t arch_cycle_soft_get_32(void) {
+  static volatile uint32_t s_cycles;
+
+  s_cycles += SOFT_CYCLES_PER_READ;
+
+  return s_cycles;
+}
+#endif
+
 PBL_SECTION_RAM uint32_t arch_cycles_per_sec(void) {
   return SystemCoreClock;
 }
