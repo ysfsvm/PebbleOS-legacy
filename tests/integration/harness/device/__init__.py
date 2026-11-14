@@ -184,7 +184,37 @@ class DeviceAdapter(ABC):
         )
         self._virtual_link.start()
         self.ble_controller = self._virtual_link.host_controller
+        if self.build.config.get("CONFIG_BT_CONTROLLER_CC2564"):
+            return self._start_cc2564_shim(self._virtual_link.watch_port)
         return self._virtual_link.watch_port
+
+    def _start_cc2564_shim(self, upstream_port):
+        """Put a CC2564B front on the virtual controller: the legacy
+        transport loads TI's init script and sleeps through eHCILL."""
+        import socket
+        import subprocess
+        import sys
+
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        self._shim = subprocess.Popen(
+            [
+                sys.executable,
+                os.path.join(self.build.topdir, "tools", "cc2564_shim.py"),
+                str(port),
+                f"127.0.0.1:{upstream_port}",
+                os.path.join(self.config.results_dir, "cc2564-shim.log"),
+            ]
+        )
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                socket.create_connection(("127.0.0.1", port), 0.2).close()
+                break
+            except OSError:
+                time.sleep(0.05)
+        return port
 
     def _power_cycle_bluetooth(self):
         """Reset the virtual controller with the watch, as a watch's own
@@ -193,6 +223,11 @@ class DeviceAdapter(ABC):
             self._virtual_link.power_cycle_watch()
 
     def _stop_bluetooth(self):
+        shim = getattr(self, "_shim", None)
+        if shim is not None:
+            shim.terminate()
+            shim.wait()
+            self._shim = None
         if self._virtual_link is not None:
             self._virtual_link.stop()
             self._virtual_link = None

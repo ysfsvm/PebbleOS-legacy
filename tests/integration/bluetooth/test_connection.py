@@ -219,13 +219,29 @@ def _wait_idle_parameters(phone, timeout=60.0):
         time.sleep(0.5)
 
 
-def _assert_idle(parameters):
+def _idle_request(build):
+    """The idle parameters the build asks for; boards may set their own."""
+    config = build.config
+    return ParameterRequest(
+        config.get("CONFIG_BT_LE_IDLE_INTERVAL_MIN", 36) * 1.25,
+        config.get("CONFIG_BT_LE_IDLE_INTERVAL_MAX", 48) * 1.25,
+        config.get("CONFIG_BT_LE_IDLE_SLAVE_LATENCY", 4),
+        6000,
+    )
+
+
+def _assert_idle(build, parameters):
+    expected = _idle_request(build)
     if isinstance(parameters, ParameterRequest):
-        assert parameters == ParameterRequest(45, 60, 4, 6000)
+        assert parameters == expected
     else:
-        assert 45 <= parameters.connection_interval <= 60
-        assert parameters.peripheral_latency == 4
-        assert parameters.supervision_timeout == 6000
+        assert (
+            expected.interval_min_ms
+            <= parameters.connection_interval
+            <= expected.interval_max_ms
+        )
+        assert parameters.peripheral_latency == expected.latency
+        assert parameters.supervision_timeout == expected.timeout_ms
 
 
 @BOTH
@@ -237,11 +253,11 @@ def test_asks_for_idle_parameters(build, watch, phones):
         with pytest.raises(WatchTimeout):
             _wait_idle_parameters(phone, timeout=PRF_IDLE_WAIT_S)
     else:
-        _assert_idle(_wait_idle_parameters(phone))
+        _assert_idle(build, _wait_idle_parameters(phone))
     assert phone.watch_version() is not None
 
 
-def test_session_on_idle_parameters(watch, phones):
+def test_session_on_idle_parameters(build, watch, phones):
     """With the relaxed parameters granted, the session carries on."""
     phone = phones(accept_parameters=True).connect()
     _wait_idle_parameters(phone)
@@ -250,5 +266,5 @@ def test_session_on_idle_parameters(watch, phones):
         if time.monotonic() > deadline:
             raise WatchTimeout("the relaxed parameters were not applied")
         time.sleep(0.5)
-    _assert_idle(phone.link.connection_parameters)
+    _assert_idle(build, phone.link.connection_parameters)
     assert phone.watch_version() is not None

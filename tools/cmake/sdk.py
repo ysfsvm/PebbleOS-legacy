@@ -24,6 +24,7 @@ SHARED_TOOLS = (
     "bitmapgen.py",
     "font/__init__.py",
     "font/fontgen.py",
+    "font/pbf_subset.py",
     "generate_appinfo.py",
     "generate_c_byte_array.py",
     "mkbundle.py",

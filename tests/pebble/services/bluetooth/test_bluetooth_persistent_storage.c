@@ -537,6 +537,35 @@ void test_bluetooth_persistent_storage__delete_ble_pairing_by_id(void) {
   cl_assert(!ret);
 }
 
+#ifdef CONFIG_LEGACY_BT_STOCK_PAIRINGS
+static void prv_count_ble_pairing_cb(struct pbl_bt_device_internal *device,
+                                     struct pbl_bt_sm_key *irk, const char *name,
+                                     pbl_bt_bonding_id_t *id, void *context) {
+  *(int *)context += 1;
+}
+
+static int prv_count_ble_pairings(void) {
+  int count = 0;
+  bt_persistent_storage_for_each_ble_pairing(prv_count_ble_pairing_cb, &count);
+  return count;
+}
+
+void test_bluetooth_persistent_storage__delete_stock_cc2564_ble_pairing(void) {
+  // The stock firmware of the CC2564 watches wrote 109-byte BLE pairings (type, flags, name
+  // and an 87-byte pairing info) to the same file.
+  uint8_t record[109] = {BtPersistBondingTypeBLE, 0x00, 'S', 't', 'o', 'c', 'k'};
+  const pbl_bt_bonding_id_t id = 1;
+  struct pbl_settings_file file = {};
+  cl_assert_equal_i(pbl_settings_open(&file, "/gap_bonding_db", 4096), 0);
+  cl_assert_equal_i(pbl_settings_set(&file, &id, sizeof(id), record, sizeof(record)), 0);
+  pbl_settings_close(&file);
+  cl_assert_equal_i(prv_count_ble_pairings(), 1);
+
+  bt_persistent_storage_delete_ble_pairing_by_id(id);
+  cl_assert_equal_i(prv_count_ble_pairings(), 0);
+}
+#endif
+
 void test_bluetooth_persistent_storage__ble_ancs_bonding(void) {
   bool ret;
 

@@ -106,6 +106,24 @@ class QemuAdapter(DeviceAdapter):
         if not machine or machine == "unknown":
             raise HarnessError(f"board {self.build.board} declares no QEMU machine")
 
+        if self._legacy:
+            # QEMU's models of the real hardware boot the stock bootloader.
+            return [
+                self._qemu(),
+                "-rtc", f"base={self.config.qemu_rtc or 'localtime'}",
+                "-display", "none",
+                "-monitor", f"unix:{self.monitor_socket},server=on,wait=off",
+                "-qmp", f"unix:{self.qmp_socket},server=on,wait=off",
+                "-serial", f"file:{os.path.join(self.workdir, 'uart1.log')}",
+                "-serial", "tcp:127.0.0.1:0,server=on,wait=off,nodelay=on",
+                "-serial", "tcp:127.0.0.1:0,server=on,wait=off,nodelay=on",
+                *(["-serial", self._bt_hci] if self._bt_hci else []),
+                "-machine", machine,
+                "-cpu", "cortex-m4",
+                "-kernel", self._legacy_micro,
+                "-drive", f"if=none,id=spi-flash,file={spi_flash},format=raw",
+            ]  # fmt: skip
+
         if config.get("CONFIG_PLATFORM_EMERY") or config.get("CONFIG_PLATFORM_FLINT"):
             machine_args = [
                 "-machine",
@@ -132,6 +150,35 @@ class QemuAdapter(DeviceAdapter):
         ]  # fmt: skip
 
     @property
+    def _legacy(self):
+        return bool(self.build.config.get("CONFIG_SOC_STM32F4_EMULATED"))
+
+    def _build_legacy_images(self, spi_flash):
+        """The stock bootloader with the firmware, and the external flash with
+        the resources; the stock-only regions get random contents, as on a
+        watch."""
+        import random
+
+        from harness.device import legacy_images
+
+        board = legacy_images.BOARDS.get(self.build.board)
+        if board is None:
+            raise HarnessError(f"no stock images for board {self.build.board}")
+        cwd = os.getcwd()
+        os.chdir(self.build.topdir)  # the bootloader comes from git history
+        try:
+            self._legacy_micro, image = legacy_images.build_stock_images(
+                board, self.build.path, self.workdir
+            )
+        finally:
+            os.chdir(cwd)
+        rng = random.Random(0x5111C)
+        for _name, lo, hi in board["protected"]:
+            image[lo:hi] = rng.randbytes(hi - lo)
+        with open(spi_flash, "wb") as f:
+            f.write(image)
+
+    @property
     def monitor_socket(self):
         return os.path.join(self._sockdir, "mon.sock")
 
@@ -147,15 +194,18 @@ class QemuAdapter(DeviceAdapter):
         self._bt_hci = (
             f"tcp:127.0.0.1:{controller}" if isinstance(controller, int) else controller
         )
-        for image in (MICRO_FLASH_IMAGE, SPI_FLASH_IMAGE):
-            if not os.path.isfile(self.build.join(image)):
-                raise HarnessError(
-                    f"no {image} in {self.build.path} -- run "
-                    "'pbl build qemu_image_micro qemu_image_spi' first"
-                )
         os.makedirs(self.workdir, exist_ok=True)
         spi_flash = os.path.join(self.workdir, SPI_FLASH_IMAGE)
-        shutil.copyfile(self.build.join(SPI_FLASH_IMAGE), spi_flash)
+        if self._legacy:
+            self._build_legacy_images(spi_flash)
+        else:
+            for image in (MICRO_FLASH_IMAGE, SPI_FLASH_IMAGE):
+                if not os.path.isfile(self.build.join(image)):
+                    raise HarnessError(
+                        f"no {image} in {self.build.path} -- run "
+                        "'pbl build qemu_image_micro qemu_image_spi' first"
+                    )
+            shutil.copyfile(self.build.join(SPI_FLASH_IMAGE), spi_flash)
 
         command = self._command_line(spi_flash)
         self._qemu_log = open(os.path.join(self.workdir, "qemu.log"), "w")  # noqa: SIM115
@@ -269,7 +319,12 @@ class QemuAdapter(DeviceAdapter):
         if not os.path.isfile(path):
             raise HarnessError(f"QEMU wrote no screenshot: {response.strip()}")
         with Image.open(path) as image:
-            return image.convert("RGB")
+            image = image.convert("RGB")
+        if self._legacy:
+            # QEMU's models of the real hardware frame the panel with a 2 px border.
+            width, height = image.size
+            image = image.crop((2, 2, width - 2, height - 2))
+        return image
 
     def _touch_display(self, qmp):
         stack = ["/machine"]

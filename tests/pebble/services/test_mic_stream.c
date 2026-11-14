@@ -82,6 +82,12 @@ bool voice_speex_init(void) {
   return s_speex_initialized;
 }
 
+#ifdef CONFIG_LEGACY_VOICE_ENCODER_IDLE_FREE
+void voice_speex_deinit(void) {
+  s_speex_initialized = false;
+}
+#endif
+
 int voice_speex_get_frame_size(void) {
   return FAKE_FRAME_SAMPLES;
 }
@@ -337,6 +343,10 @@ void test_mic_stream__setup_and_data(void) {
   cl_assert_equal_i(1, s_transfer_stopped_count);
   cl_assert_equal_i(0, s_transfer_cancelled_count);
   cl_assert_equal_i(1, fake_event_get_count());
+#ifdef CONFIG_LEGACY_VOICE_ENCODER_IDLE_FREE
+  // The encoder's kernel heap is given back
+  cl_assert(!s_speex_initialized);
+#endif
 }
 
 void test_mic_stream__refused_by_phone(void) {
@@ -405,6 +415,18 @@ void test_mic_stream__preempted_by_dictation(void) {
   prv_assert_stopped_event(MicStreamServiceStopReasonPreempted);
   cl_assert(prv_start_dictation());
 }
+
+#ifdef CONFIG_LEGACY_VOICE_ENCODER_IDLE_FREE
+void test_mic_stream__dictation_keeps_the_encoder(void) {
+  prv_start_and_accept();
+  // As in voice_start_dictation(): the session is marked active before the stream is stopped
+  mic_manager_set_dictation_active(true);
+  mic_stream_service_handle_system_preempt();
+  cl_assert(!mic_stream_service_is_active());
+  cl_assert(s_speex_initialized);
+  mic_manager_set_dictation_active(false);
+}
+#endif
 
 void test_mic_stream__preempted_through_mic_manager(void) {
   prv_start_and_accept();

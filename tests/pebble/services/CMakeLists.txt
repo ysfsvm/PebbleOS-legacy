@@ -288,6 +288,7 @@ pbl_clar_test(test_mic_stream
     pebble/services/mic_stream/mic_stream.c
     pebble/services/mic_manager/mic_manager.c
     tests/fakes/fake_events.c
+  DEFINES CONFIG_LEGACY_VOICE_ENCODER_IDLE_FREE
   OVERRIDES dummy_board
 )
 
@@ -451,6 +452,7 @@ pbl_clar_test(test_hrm_manager
     tests/fakes/fake_events.c
     tests/fakes/fake_rtc.c
     tests/fakes/fake_accel_service.c
+  DEFINES CONFIG_HRM_SPO2
   OVERRIDES dummy_board
 )
 

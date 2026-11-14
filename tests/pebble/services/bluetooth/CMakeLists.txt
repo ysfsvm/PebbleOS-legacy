@@ -30,5 +30,6 @@ pbl_clar_test(test_bluetooth_persistent_storage
     tests/fakes/fake_shared_prf_storage.c
     tests/fakes/fake_events.c
     tests/fakes/fake_rtc.c
+  DEFINES CONFIG_LEGACY_BT_STOCK_PAIRINGS
   OVERRIDES dummy_board bluetooth_persistent_storage_v2
 )

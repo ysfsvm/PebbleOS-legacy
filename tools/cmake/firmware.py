@@ -46,6 +46,9 @@ def enabled(config, key):
 
 
 def max_resources_size(config):
+    if enabled(config, "CONFIG_FLASH_LAYOUT_SNOWY"):
+        # Stock snowy resource banks are 512K; bank 1 is followed by the filesystem
+        return 512 * BYTES_PER_K
     if enabled(config, "CONFIG_SOC_NRF52"):
         return 1024 * BYTES_PER_K
     if enabled(config, "CONFIG_SOC_SF32LB52") or enabled(config, "CONFIG_QEMU"):

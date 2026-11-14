@@ -8,7 +8,7 @@ import shutil
 
 from harness.errors import HarnessError
 
-_PLATFORMS = ("emery", "flint", "gabbro")
+_PLATFORMS = ("emery", "flint", "gabbro", "basalt", "chalk")
 _TOPDIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
@@ -96,7 +96,10 @@ class Build:
 
     @property
     def emulated(self):
-        return bool(self.config.get("CONFIG_QEMU"))
+        # The legacy boards' emulated builds run on QEMU's models of the real hardware.
+        return bool(
+            self.config.get("CONFIG_QEMU") or self.config.get("CONFIG_SOC_STM32F4_EMULATED")
+        )
 
     @property
     def native(self):

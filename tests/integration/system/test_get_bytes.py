@@ -76,8 +76,10 @@ def test_coredump_has_fault_registers(dut):
 
     # r0-r12 as set before the fault, so neither the fault handler's nor unknown
     assert regs[:13] == [0x10101010 + i * 0x01010101 for i in range(13)]
-    # sp, back to where it was before stacking the frame, in RAM and aligned
+    # sp, back to where it was before stacking the frame, in RAM and aligned; the
+    # STM32F4 boards keep the kernel stacks in core-coupled RAM
     assert regs[13] & 0x3 == 0
-    assert regs[13] >> 24 == 0x20
+    ram = [0x20] + ([0x10] if dut.build.config.get("CONFIG_CCM_SIZE") else [])
+    assert regs[13] >> 24 in ram
     # pc, thumb code
     assert regs[15] not in (0, 0xA5A5A5A5)
