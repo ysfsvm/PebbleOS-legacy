@@ -13,6 +13,9 @@
 #include <pbl/services/process_management/app_storage.h>
 #include <pbl/util/size.h>
 
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+#include <pbl/drivers/flash/s29vs.h>
+#endif
 #include <resource/resource_version.auto.h>
 #include <system/bootbits.h>
 
@@ -99,12 +102,29 @@ static uint32_t resource_storage_system_bank_read(ResourceStoreEntry *entry, uin
   return num_bytes;
 }
 
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+//! While system resources are being written, hand out copies instead of
+//! pointers: on a parallel NOR such as the S29VS a read of a bank that is
+//! being programmed or erased returns status, and both resource banks share one.
+static volatile int s_mmap_paused;
+
+void resource_storage_flash_pause_mmap(bool pause) {
+  s_mmap_paused += pause ? 1 : -1;
+}
+#endif
+
 bool resource_storage_flash_bytes_are_readonly(const void *bytes) {
 #ifdef CONFIG_MMAP_RESOURCES
   // Pointers inside the banks are in the always-mapped XIP window.
   for (unsigned int i = 0; i < ARRAY_LENGTH(s_resource_banks); i++) {
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+    // The banks are on the S29VS window, which the MPU leaves to privileged code.
+    if ((bytes >= (const void *)(uintptr_t)(S29VS_MAPPED_ADDRESS + s_resource_banks[i].begin)) &&
+        (bytes < (const void *)(uintptr_t)(S29VS_MAPPED_ADDRESS + s_resource_banks[i].end))) {
+#else
     if ((bytes >= (const void *)(uintptr_t)(CONFIG_FLASH_BASE + s_resource_banks[i].begin)) &&
         (bytes < (const void *)(uintptr_t)(CONFIG_FLASH_BASE + s_resource_banks[i].end))) {
+#endif
       return true;
     }
   }
@@ -114,8 +134,18 @@ bool resource_storage_flash_bytes_are_readonly(const void *bytes) {
 
 static const uint8_t *resource_storage_system_bank_readonly_bytes(ResourceStoreEntry *entry) {
 #ifdef CONFIG_MMAP_RESOURCES
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+  // While system resources are being written, hand out copies instead.
+  if (s_mmap_paused > 0) {
+    return nullptr;
+  }
+#endif
   // Bank is XIP-mapped and readable by unprivileged code too.
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+  return (const uint8_t *)(uintptr_t)(S29VS_MAPPED_ADDRESS + BANK.begin + entry->offset);
+#else
   return (const uint8_t *)(uintptr_t)(CONFIG_FLASH_BASE + BANK.begin + entry->offset);
+#endif
 #else
   return nullptr;
 #endif

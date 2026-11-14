@@ -72,6 +72,17 @@ static LanguagePackState s_language_pack_state[LANGUAGE_PACK_COUNT];
 // Bumped when a pack file changes, so a font loaded outside the lock can't be stored stale
 static uint32_t s_language_pack_changes[LANGUAGE_PACK_COUNT];
 
+//! Whether a font extension comes from the language packs, which move it with the primary slot.
+static bool prv_is_language_extension(uint32_t extension) {
+#ifdef CONFIG_LEGACY_EMOJI_PACK
+  // The emoji pack's extensions have a store of their own.
+  return extension >= RESOURCE_ID_GOTHIC_14_EXTENDED &&
+         extension <= RESOURCE_ID_LECO_60_BOLD_NUMBERS_AM_PM_EXTENDED;
+#else
+  return true;
+#endif
+}
+
 static uint8_t prv_primary_font_slot(void) {
   return shell_prefs_get_language_english() ? 0
                                             : shell_language_pack_slot(shell_prefs_get_language());
@@ -155,7 +166,23 @@ void system_resource_language_changed(void) {
 #endif
 }
 
+#ifdef CONFIG_LEGACY_EMOJI_PACK
+static void prv_emoji_pack_changed(void *data) {
+  // Cached entries still point at offsets in the old file.
+  resource_uncache(RESOURCE_ID_GOTHIC_14_EMOJI_EXTENDED, RESOURCE_ID_GOTHIC_28_EMOJI_EXTENDED);
+  prv_invalidate_system_fonts();
+}
+
+static void prv_emoji_pack_file_changed(void *data) {
+  // PFS holds its lock here, which resource reads take after the resource lock.
+  launcher_task_add_callback(prv_emoji_pack_changed, data);
+}
+#endif
+
 static void prv_watch_language_packs(void) {
+#ifdef CONFIG_LEGACY_EMOJI_PACK
+  pbl_fs_watch_add("/emoji", PBL_FS_WATCH_ALL, prv_emoji_pack_file_changed, nullptr);
+#endif
 #ifndef CONFIG_RECOVERY_FW
   pbl_mutex_init(&s_language_fonts_mutex);
   for (uint8_t slot = 0; slot < LANGUAGE_PACK_COUNT; ++slot) {
@@ -234,7 +261,7 @@ static GFont prv_load_system_font(const char *font_key) {
       uint32_t resource = s_font_resource_keys[i].resource_id;
       uint32_t extension = s_font_resource_keys[i].extension_id;
 #ifndef CONFIG_RECOVERY_FW
-      if (extension) {
+      if (extension && prv_is_language_extension(extension)) {
         extension =
             language_pack_resource_id(prv_primary_font_slot(), extension, RESOURCE_ID_STRINGS);
       }
@@ -292,7 +319,7 @@ PBL_SYSCALL(void, sys_font_reload_font, (VAL, FontInfo *, fontinfo)) {
   for (size_t i = 0; i < NUM_SYSTEM_FONTS; ++i) {
     if (fontinfo == &s_system_fonts_info_table[i]) {
       extension = s_font_resource_keys[i].extension_id;
-      if (extension) {
+      if (extension && prv_is_language_extension(extension)) {
         extension =
             language_pack_resource_id(prv_primary_font_slot(), extension, RESOURCE_ID_STRINGS);
       }

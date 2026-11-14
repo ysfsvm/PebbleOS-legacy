@@ -63,6 +63,10 @@ PBL_SYSCALL(const uint8_t *, sys_resource_read_only_bytes, (VAL, ResAppNum, app_
   }
   if (from_user) {
     prv_assert_app_num_accessible(app_num);
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+    // The mapped banks are privileged-only: user code gets a copy instead.
+    return nullptr;
+#endif
   }
 
   return resource_get_readonly_bytes(app_num, resource_id, num_bytes_out);

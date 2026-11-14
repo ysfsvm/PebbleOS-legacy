@@ -11,3 +11,5 @@ pbl_library_sources_ifdef(CONFIG_FLASH_SPI_NOR gd25lq255e.c gd25q256e.c spi_nor.
 pbl_library_sources_ifdef(CONFIG_FLASH_QEMU qemu.c)
 pbl_library_sources_ifdef(CONFIG_FLASH_POSIX posix.c)
 pbl_library_sources_ifdef(CONFIG_FLASH_SHELL shell.c)
+pbl_library_sources_ifdef(CONFIG_FLASH_S29VS s29vs.c)
+pbl_library_sources_ifdef(CONFIG_FLASH_GUARD flash_guard.c)

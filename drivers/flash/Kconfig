@@ -26,6 +26,13 @@ config FLASH_SPI_NOR
       its JEDEC ID among the supported parts and described by its SFDP
       tables and the part description.
 
+config FLASH_S29VS
+    bool "Spansion S29VS (FMC)"
+    depends on HAL_STM32_STM32F439
+    help
+      Support for the Spansion S29VS parallel NOR flash on the STM32F439
+      FMC, as found on the Pebble Time (snowy).
+
 config FLASH_QEMU
     bool "QEMU External Flash"
     default DT_HAS_QEMU_PEBBLE_EXTFLASH_ENABLED
@@ -60,6 +67,20 @@ config FLASH_SHELL_STRESS
     help
       The flash stress and benchmark commands. The stress test writes the
       firmware update area.
+
+config FLASH_LAYOUT_SNOWY
+    bool "Pebble Time (snowy, spalding) stock flash layout"
+    select FLASH_GUARD
+    help
+      Use the stock Pebble Time and Time Round external flash layout, keeping the stock
+      bootloader's PRF, shared PRF storage and MFG info (with the boot FPGA
+      bitstream) where they are.
+
+config FLASH_GUARD
+    bool "Guard regions the firmware does not own"
+    help
+      Assert instead of issuing any erase or write that overlaps PRF,
+      shared PRF storage or MFG info, and refuse security register writes.
 
 module = DRIVER_FLASH
 module-str = Flash

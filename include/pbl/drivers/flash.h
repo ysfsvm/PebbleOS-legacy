@@ -16,11 +16,20 @@
 // Program and erase units of the NOR parts in use, for sizes known at build time
 #define PAGE_SIZE_BYTES (0x100)
 
+#ifdef CONFIG_FLASH_S29VS
+// The stock filesystem on the Pebble Time's S29VS has 128 KiB pages.
+#define SECTOR_SIZE_BYTES (0x20000)
+#define SECTOR_ADDR_MASK  (~(SECTOR_SIZE_BYTES - 1))
+
+#define SUBSECTOR_SIZE_BYTES (0x20000)
+#define SUBSECTOR_ADDR_MASK  (~(SUBSECTOR_SIZE_BYTES - 1))
+#else
 #define SECTOR_SIZE_BYTES (0x10000)
 #define SECTOR_ADDR_MASK  (~(SECTOR_SIZE_BYTES - 1))
 
 #define SUBSECTOR_SIZE_BYTES (0x1000)
 #define SUBSECTOR_ADDR_MASK  (~(SUBSECTOR_SIZE_BYTES - 1))
+#endif
 
 /**
  * @defgroup drivers_flash Flash

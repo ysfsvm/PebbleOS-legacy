@@ -4,7 +4,13 @@
 #include "applib_resource_private.h"
 
 #include <applib/applib_malloc.auto.h>
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+#include <kernel/pebble_tasks.h>
+#endif
 #include <process_state/app_state/app_state.h>
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+#include <resource/resource_mapped.h>
+#endif
 #include <resource/resource_storage_builtin.h>
 #include <resource/resource_storage_flash.h>
 #include <syscall/syscall.h>
@@ -74,7 +80,17 @@ static bool prv_resource_is_mmapped(const void *bytes) {
 }
 
 bool applib_resource_track_mmapped(const void *bytes) {
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+  // Only privileged callers get pointers into the flash banks, so they may call
+  // into the kernel directly.
+  if (resource_storage_flash_bytes_are_readonly(bytes)) {
+    resource_mapped_use(pebble_task_get_current());
+    return true;
+  }
+  return resource_storage_builtin_bytes_are_readonly(bytes);
+#else
   return prv_resource_is_mmapped(bytes);
+#endif
 }
 
 bool applib_resource_is_mmapped(const void *bytes) {
@@ -82,5 +98,13 @@ bool applib_resource_is_mmapped(const void *bytes) {
 }
 
 bool applib_resource_munmap(const void *bytes) {
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+  if (resource_storage_flash_bytes_are_readonly(bytes)) {
+    resource_mapped_release(pebble_task_get_current());
+    return true;
+  }
+  return resource_storage_builtin_bytes_are_readonly(bytes);
+#else
   return prv_resource_is_mmapped(bytes);
+#endif
 }

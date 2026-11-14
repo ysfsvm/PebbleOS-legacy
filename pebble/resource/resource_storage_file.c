@@ -8,6 +8,7 @@
 
 #include <errno.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <pbl/crc/crc.h>
 #include <pbl/fs/fs.h>
@@ -153,6 +154,45 @@ static const uint8_t *resource_storage_file_readonly_bytes_unsupported(ResourceS
   return nullptr;
 }
 
+#ifdef CONFIG_LEGACY_LANG_PACK_STOCK_LAYOUT
+// A stock firmware pack: STRINGS, the eight Gothic 14-28 extensions, then Bitham, Roboto and
+// Droid. Core's layout puts the two Gothic 36 extensions before those and adds the LECO fonts.
+#define STOCK_PACK_RESOURCES   19U
+#define STOCK_PACK_FIRST_MOVED 10U
+#define CORE_PACK_FIRST_MOVED  (STOCK_PACK_FIRST_MOVED + 2U)
+#define CORE_PACK_LAST_MOVED (CORE_PACK_FIRST_MOVED + STOCK_PACK_RESOURCES - STOCK_PACK_FIRST_MOVED)
+
+//! Maps a language pack entry in Core's layout to the file's own. One a stock layout file does
+//! not have becomes an id past its end, which the store then rejects: the lookup must not fall
+//! through to the next store, which would read the remapped id from the system bank.
+static bool prv_map_language_entry(const FileResourceData *file, uint32_t *id) {
+  if (*id < STOCK_PACK_FIRST_MOVED) {
+    return true;
+  }
+  struct pbl_fs_file fs_file;
+  ResourceManifest manifest = {};
+  const int ret = prv_file_open_by_name(&fs_file, file->name, FAST_READ_FLAGS);
+  if (ret < 0) {
+    return true;
+  }
+  const ssize_t read = pbl_fs_read(&fs_file, &manifest, sizeof(manifest));
+  pbl_fs_close(&fs_file);
+  if (read != (ssize_t)sizeof(manifest) || manifest.num_resources != STOCK_PACK_RESOURCES) {
+    return true;
+  }
+  if (*id < CORE_PACK_FIRST_MOVED || *id > CORE_PACK_LAST_MOVED) {
+    *id = STOCK_PACK_RESOURCES + 1U;
+    return true;
+  }
+  *id -= CORE_PACK_FIRST_MOVED - STOCK_PACK_FIRST_MOVED;
+  return true;
+}
+
+static bool prv_is_language_store(const FileResourceData *file) {
+  return strncmp(file->name, "/lang", 5) == 0;
+}
+#endif
+
 static bool resource_storage_file_find_resource(ResourceStoreEntry *entry, ResAppNum app_num,
                                                 uint32_t resource_id) {
   if (app_num != SYSTEM_APP) {
@@ -163,7 +203,11 @@ static bool resource_storage_file_find_resource(ResourceStoreEntry *entry, ResAp
     if (resource_id >= file->first_resource_id && resource_id <= file->last_resource_id) {
       entry->store_data = file;
       entry->id -= file->resource_id_offset;
+#ifdef CONFIG_LEGACY_LANG_PACK_STOCK_LAYOUT
+      return prv_map_language_entry(file, &entry->id);
+#else
       return true;
+#endif
     }
   }
   for (unsigned int i = 0; i < g_num_file_resource_stores; ++i) {
@@ -173,6 +217,11 @@ static bool resource_storage_file_find_resource(ResourceStoreEntry *entry, ResAp
       const FileResourceData *file = &g_file_resource_stores[i];
       entry->store_data = file;
       entry->id -= file->resource_id_offset;
+#ifdef CONFIG_LEGACY_LANG_PACK_STOCK_LAYOUT
+      if (prv_is_language_store(file)) {
+        return prv_map_language_entry(file, &entry->id);
+      }
+#endif
       return true;
     }
   }

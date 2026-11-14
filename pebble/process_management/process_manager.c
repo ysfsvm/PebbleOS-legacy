@@ -41,6 +41,9 @@
 #include <process_state/app_state/app_state.h>
 #include <process_state/worker_state/worker_state.h>
 #include <resource/resource_ids.auto.h>
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+#include <resource/resource_mapped.h>
+#endif
 #include <shell/normal/watchface.h>
 #include <syscall/syscall.h>
 
@@ -593,6 +596,9 @@ void process_manager_process_cleanup(PebbleTask task) {
   event_reset_from_process_queue(task);
   evented_timer_clear_process_timers(task);
   event_service_clear_process_subscriptions(task);
+#ifdef CONFIG_MMAP_RESOURCES_GUARDED
+  resource_mapped_release_all(task);
+#endif
 
 #ifdef CONFIG_HRM
   hrm_manager_process_cleanup(task, context->install_id);

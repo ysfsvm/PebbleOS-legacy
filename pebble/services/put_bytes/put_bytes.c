@@ -106,7 +106,11 @@ typedef enum {
   NumResponseCodes
 } ResponseCode;
 
+#ifdef CONFIG_SERVICE_PUT_BYTES_BUFFERS
+#define MAX_BATCHED_PB_PUT_OPS CONFIG_SERVICE_PUT_BYTES_BUFFERS
+#else
 #define MAX_BATCHED_PB_PUT_OPS 3
+#endif
 
 typedef struct {
   uint8_t *buffer;
@@ -454,7 +458,10 @@ static void prv_commit_object(uint32_t crc) {
       .checksum = crc
     };
 
+#ifndef CONFIG_FIRMWARE_LEGACY_CRC
+    // The phone sends the legacy checksum; the bootloader checks CRC32.
     fw_descr.checksum = pb_storage_calculate_crc(&s_pb_state.storage, PutBytesCrcType_CRC32);
+#endif
     pb_storage_write(&s_pb_state.storage, 0, (uint8_t *)&fw_descr, sizeof(FirmwareDescription));
   }
 #endif
@@ -593,6 +600,13 @@ static bool prv_is_init_object_type_invalid(PutBytesObjectType type) {
   if (!prv_is_object_allowed(type)) {
     return true;
   }
+#ifdef CONFIG_FLASH_GUARD
+  // The PRF belongs to the stock bootloader here and is never replaced.
+  if (type == ObjectRecovery) {
+    PBL_LOG_WRN("Refusing recovery firmware object");
+    return true;
+  }
+#endif
   if (!prv_has_valid_fw_update_state_for_object_type(type)) {
     PBL_LOG_ERR("Not in FW update state");
     return true;
