@@ -3,6 +3,7 @@
 
 pbl_library()
 pbl_library_sources(vibe.c)
+pbl_library_sources_ifdef(CONFIG_VIBE_PWM pwm.c)
 pbl_library_sources_ifdef(CONFIG_VIBE_AW86225 aw86225.c)
 pbl_library_sources_ifdef(CONFIG_VIBE_AW8623X aw8623x.c)
 pbl_library_sources_ifdef(CONFIG_VIBE_DRV2604 drv2604.c)

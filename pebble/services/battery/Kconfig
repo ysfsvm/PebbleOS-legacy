@@ -45,6 +45,16 @@ config SERVICE_BATTERY_LOW_POWER_PERCENT
     help
       Battery percentage below which the watch enters low power mode.
 
+config SERVICE_BATTERY_SKIP_LOADED_SAMPLES
+    bool "Skip battery samples taken under load"
+    depends on SOC_STM32F4
+    default y if LEGACY_WATCH
+    help
+      Skip up to five battery samples in a row while a peripheral that keeps
+      the SoC out of STOP (vibe, backlight, display update) is running: its
+      current makes the cell voltage sag, and a low reading sticks, since the
+      percent does not go back up while discharging. As the stock firmware did.
+
 config SERVICE_BATTERY_CAPACITY_HOURS
     int "Battery life (hours)"
     range 1 65535
@@ -71,6 +81,14 @@ config BATTERY_WARNING_SECOND_PERCENT
 
 module = SERVICE_BATTERY
 module-str = Battery
+config BATTERY_EXACT_PERCENT
+    bool "Report the exact charge percent"
+    help
+      Report the charge percent to the UI and apps in 1% steps, the same value
+      the Bluetooth Battery Service gives the phone. By default it is rounded
+      to 10% steps and the low power reserve is subtracted, so it reads 0%
+      as low power mode approaches. Only for the voltage based fuel gauge.
+
 source "subsys/logging/Kconfig.template.log_level"
 
 endif

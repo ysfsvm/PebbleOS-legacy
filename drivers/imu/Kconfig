@@ -19,6 +19,11 @@ menuconfig ACCEL
 
 if ACCEL
 
+config ACCEL_BMI160
+    bool "Bosch BMI160"
+    help
+      Support for the Bosch BMI160 accelerometer/gyroscope.
+
 config ACCEL_LIS2DW12
     bool "ST LIS2DW12"
     default DT_HAS_ST_LIS2DW12_ENABLED
@@ -137,6 +142,12 @@ config MAG_SIM
     help
       Simulated magnetometer, measuring a field set through its
       simulator API (pbl/drivers/imu/sim.h).
+
+config MAG_MAG3110
+    bool "NXP MAG3110"
+    depends on I2C && SOC_STM32F4
+    help
+      Support for the NXP MAG3110 magnetometer (snowy).
 
 endif # MAG
 

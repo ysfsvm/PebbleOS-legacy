@@ -16,6 +16,9 @@
 #include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/battery/battery_curve.h>
+#ifdef CONFIG_SERVICE_BATTERY_SKIP_LOADED_SAMPLES
+#include <pbl/soc/stm32/sleep.h>
+#endif
 #include <pbl/util/math.h>
 #include <pbl/util/ratio.h>
 
@@ -56,6 +59,9 @@ typedef struct BatteryState {
   uint32_t percent;
   uint16_t voltage;
   ConnectionStateID connection;
+#ifdef CONFIG_SERVICE_BATTERY_SKIP_LOADED_SAMPLES
+  uint8_t skip_count;
+#endif
 } BatteryState;
 
 static BatteryState s_last_battery_state;
@@ -162,6 +168,18 @@ static ConnectionStateID prv_get_connection_state(void) {
 
 static void prv_update_state(void *force_update) {
   bool forced = (bool)force_update;
+
+#ifdef CONFIG_SERVICE_BATTERY_SKIP_LOADED_SAMPLES
+  // Peripherals that keep the SoC out of STOP (vibe, backlight, display) draw enough to make
+  // the voltage sag: sample when they are idle, but not skip forever.
+  const uint8_t MAX_SAMPLE_SKIPS = 5;
+  if (!forced && s_last_battery_state.skip_count < MAX_SAMPLE_SKIPS &&
+      !soc_stm32_stop_is_allowed()) {
+    s_last_battery_state.skip_count++;
+    return;
+  }
+  s_last_battery_state.skip_count = 0;
+#endif
 
   // Driver communication
 
@@ -277,6 +295,11 @@ BatteryChargeState battery_get_charge_state(void) {
   // Read the exact percent the simulator was set to, skipping the lossy voltage-curve roundtrip
   // and the low-power-reserve remap so the watch displays exactly what was requested.
   int32_t percent = MIN((int32_t)pbl_battery_sim_get_percent(), 100);
+  int32_t percent_normalized = percent;
+  uint8_t charge_percent = (uint8_t)percent;
+#elif defined(CONFIG_BATTERY_EXACT_PERCENT)
+  // The same value the phone gets over the Battery Service, in 1% steps.
+  int32_t percent = MIN(pbl_ratio32_to_percent(s_last_battery_state.percent), 100);
   int32_t percent_normalized = percent;
   uint8_t charge_percent = (uint8_t)percent;
 #else
