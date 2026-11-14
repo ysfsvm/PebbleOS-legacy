@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 Brian Silvestri
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig HAL_STM32
+    bool "STM32 Standard Peripheral Library"
+    select CMSIS_CORE
+    help
+      Build the STM32F4xx Standard Peripheral Library.
+
+if HAL_STM32
+
+config HAL_STM32_STM32F439
+    bool
+    default y if SOC_STM32F439
+    help
+      Configure the library for the STM32F439 used by the Pebble Time
+      (snowy).
+
+endif # HAL_STM32

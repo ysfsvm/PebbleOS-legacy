@@ -6,6 +6,7 @@ config SOC_STM32F4
     select CPU_CORTEX_M4
     select CPU_HAS_FPU
     select CMSIS_CORE
+    select HAL_STM32
     help
       ST STM32F4 series, selected by its lines.
 
