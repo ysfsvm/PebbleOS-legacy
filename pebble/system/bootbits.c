@@ -9,10 +9,10 @@
 #include <system/bootbits.h>
 #include <system/version.h>
 
-#if MICRO_FAMILY_STM32F4
+#ifdef CONFIG_SOC_STM32F4
+// The backup registers, and their accessors, of the STM32 peripheral library
 #include <pbl/kernel/compiler.h>
-
-#include <stm32f4xx.h>
+#include <pbl/soc/stm32/cmsis.h>
 #endif
 
 #if defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
