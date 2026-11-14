@@ -40,6 +40,13 @@ config UART_SF32LB_IRQ_PRIO
     help
       Priority of the port interrupts.
 
+config UART_STM32
+    bool "ST STM32 USART"
+    default y if SOC_STM32F4
+    select HAL_STM32
+    help
+      Support for the STM32F4 USART.
+
 config UART_QEMU
     bool "QEMU Simple UART"
     default DT_HAS_QEMU_PEBBLE_SIMPLE_UART_ENABLED

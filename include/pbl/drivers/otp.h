@@ -19,6 +19,24 @@
  * @{
  */
 
+#if defined(CONFIG_BOARD_SNOWY) || defined(CONFIG_BOARD_SPALDING)
+/** @brief OTP slot indexes, in the stock snowy and spalding layout. The stock factory flow
+ *  could write the serials several times; the most recent locked slot wins. */
+enum {
+  OTP_SERIAL1 = 0,
+  OTP_HWVER1 = 1,
+  OTP_PCBA_SERIAL1 = 2,
+
+  OTP_SERIAL2 = 3,
+  OTP_SERIAL3 = 4,
+  OTP_SERIAL4 = 5,
+  OTP_SERIAL5 = 6,
+  OTP_PCBA_SERIAL2 = 7,
+  OTP_PCBA_SERIAL3 = 8,
+
+  NUM_OTP_SLOTS = 16,
+};
+#else
 /** @brief OTP slot indexes. */
 enum {
   /** Hardware version. */
@@ -30,6 +48,7 @@ enum {
   /** Number of slots. */
   NUM_OTP_SLOTS = 3,
 };
+#endif
 
 /** @brief Result of otp_write_slot(). */
 typedef enum {

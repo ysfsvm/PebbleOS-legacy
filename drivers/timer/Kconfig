@@ -30,6 +30,51 @@ config TIMER_SF32LB_LPTIM
       calibrated LRC10 or the 32 kHz crystal. It keeps running and wakes the
       CPU up in deep sleep.
 
+config TIMER_STM32_RTC
+    bool "STM32F4 RTC"
+    help
+      Clock source and clock event device on the STM32F4 RTC: the calendar
+      and its 256 Hz sub-second counter. Alarm A or the wakeup timer raises
+      the clock events; both keep running and wake the CPU up in STOP mode.
+
+config TIMER_STM32_RTC_WUT
+    bool "STM32F4 RTC wakeup timer as the clock event"
+    depends on TIMER_STM32_RTC
+    help
+      Raise the kernel's clock events with the RTC wakeup timer, in steps
+      of 61 us. The kernel sets it up again on most ticks, with interrupts
+      locked for about 60 us each time. With it on, snowy loses bytes of
+      the CC2564's init script replies when Bluetooth is restarted. Off,
+      alarm A raises the events (SysTick on the emulated SoC, which then
+      cannot use STOP).
+
+config TIMER_STM32_RTC_ALARM
+    bool "STM32F4 RTC alarm A as the clock event"
+    depends on TIMER_STM32_RTC && !TIMER_STM32_RTC_WUT && !SOC_STM32F4_EMULATED
+    default y
+    help
+      Raise the kernel's clock events with alarm A and its sub-second
+      match, in steps of the 256 Hz clock source; an event is at least
+      three steps (11.7 ms) away. The emulator does not model the
+      sub-second match.
+
+config TIMER_STM32_RTC_WUT_PERIODIC
+    bool "Leave the wakeup timer running between events of the same period"
+    depends on TIMER_STM32_RTC_WUT
+    default y
+    help
+      The kernel asks for an event every tick. Off, each request stops the
+      timer and writes it again, which takes about 60 us with interrupts
+      locked.
+
+config TIMER_STM32_RTC_WUT_MIN_COUNT
+    int "Shortest clock event, in wakeup timer counts (1/16384 s)"
+    depends on TIMER_STM32_RTC_WUT
+    default 16
+    help
+      16 is one kernel tick at 1024 Hz; 64 is one step of the 256 Hz clock
+      source, below which the kernel sees no time pass.
+
 config TIMER_POSIX
     bool "POSIX"
     help

@@ -32,6 +32,13 @@ config RTC_SF32LB
     help
       SiFli SF32LB calendar RTC, counting clk_rtc at its calibrated rate.
 
+config RTC_STM32
+    bool "ST STM32"
+    default y if SOC_STM32F4
+    select HAL_STM32
+    help
+      Support for the STM32F4 RTC.
+
 config RTC_QEMU
     bool "QEMU RTC"
     default y if SOC_QEMU_PEBBLE

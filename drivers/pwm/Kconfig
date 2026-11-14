@@ -31,6 +31,13 @@ config PWM_SF32LB_LPTIM
     help
       Support for PWM outputs of the SiFli SF32LB low-power timers.
 
+config PWM_STM32
+    bool "ST STM32 timers"
+    default y if SOC_STM32F4
+    select HAL_STM32
+    help
+      PWM on the STM32F4 timer output channels.
+
 config PWM_SHELL
     bool "Shell commands"
     default DRIVER_SHELL

@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig EXTI
+    bool "External Interrupt"
+    help
+      External Interrupt Drivers
+
+if EXTI
+
+config EXTI_STM32
+    bool "ST STM32"
+    default y if SOC_STM32F4
+    select HAL_STM32
+    help
+      Support for the STM32F4 external interrupt controller.
+
+module = DRIVER_EXTI
+module-str = External Interrupt
+source "subsys/logging/Kconfig.template.log_level"
+
+endif # EXTI
