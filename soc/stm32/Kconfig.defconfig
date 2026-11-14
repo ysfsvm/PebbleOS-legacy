@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Brian Silvestri
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_STM32F4
+
+config SOC
+    default "STM32F4"
+
+# 1 MiB of internal flash; the stock bootloader occupies the first 16 KiB.
+config FLASH_BASE
+    default 0x08000000
+
+config FLASH_SIZE
+    default 0x100000
+
+config FLASH_OFFSET
+    default 0x4000
+
+# F439: 192 KiB of SRAM and 64 KiB of CCM.
+config SRAM_BASE
+    default 0x20000000
+
+config SRAM_SIZE
+    default 0x30000 if SOC_STM32F439
+
+config NUM_IRQS
+    default 91 if SOC_STM32F439
+
+config NUM_IRQ_PRIO_BITS
+    default 4
+
+endif # SOC_STM32F4

@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Brian Silvestri
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_STM32F4
+    bool
+    select CPU_CORTEX_M4
+    select CPU_HAS_FPU
+    select CMSIS_CORE
+    help
+      ST STM32F4 series, selected by its lines.
+
+config SOC_STM32F4_EMULATED
+    bool "Run on Core's QEMU STM32F4 machines"
+    depends on SOC_STM32F4
+    select TIMER_ARM_SYSTICK if !TIMER_STM32_RTC_WUT
+    help
+      Work around what the pebble-snowy-bb and pebble-s4-bb machines do not
+      model: the S29VS status register, the RTC alarm sub-seconds (alarms
+      only match whole seconds) and RTC initialization mode. The system
+      timer's event comes from SysTick instead of the RTC alarm. For
+      emulator builds only: never set it for a watch.

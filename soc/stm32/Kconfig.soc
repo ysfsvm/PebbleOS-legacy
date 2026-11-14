@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Brian Silvestri
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_STM32F439
+    bool "ST STM32F439"
+    select SOC_STM32F4

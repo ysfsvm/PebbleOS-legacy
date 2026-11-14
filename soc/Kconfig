@@ -9,6 +9,7 @@ choice
 
 rsource "nrf/Kconfig.soc"
 rsource "sf32lb/Kconfig.soc"
+rsource "stm32/Kconfig.soc"
 rsource "qemu/Kconfig.soc"
 
 config SOC_POSIX
@@ -66,3 +67,4 @@ config QEMU
 rsource "nrf/Kconfig"
 rsource "qemu/Kconfig"
 rsource "sf32lb/Kconfig"
+rsource "stm32/Kconfig"
