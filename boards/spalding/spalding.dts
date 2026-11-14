@@ -1,0 +1,12 @@
+// SPDX-FileCopyrightText: 2026 retake
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+/dts-v1/;
+
+#include "snowy/snowy.dtsi"
+
+/ {
+	model = "Pebble Time Round";
+
+	compatible = "pebble,spalding", "st,stm32f439";
+};

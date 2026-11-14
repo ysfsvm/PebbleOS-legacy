@@ -1,0 +1,88 @@
+// SPDX-FileCopyrightText: 2026 retake
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+// What the Pebble Time and Time Round share in the tree: only the NOR flash
+// and its partitions so far. The other devices are defined in C (snowy.c).
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	// 16 MiB Spansion S29VS on the FMC, bank 1. The first 128 KiB has 32 KiB
+	// bottom boot sectors, the rest 128 KiB sectors.
+	flash0: flash@60000000 {
+		compatible = "cfi-flash";
+		reg = <0x60000000 0x1000000>;
+		bank-width = <2>;
+
+		// The stock bootloader and recovery firmware (PRF) fix where the PRF,
+		// the stock shared PRF storage and the factory data are; this firmware
+		// never writes them (FLASH_GUARD).
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			// Flash logs, in the bottom boot sectors.
+			partition@0 {
+				label = "debug-db";
+				reg = <0x0 0x20000>;
+			};
+
+			// This firmware's own shared PRF storage.
+			partition@20000 {
+				label = "shared-prf-storage";
+				reg = <0x20000 0x20000>;
+			};
+
+			// Timezone database, one sector of the otherwise unused
+			// 0x40000-0xc0000.
+			partition@40000 {
+				label = "tzinfo";
+				reg = <0x40000 0x20000>;
+			};
+
+			// The stock firmware's shared PRF storage: read only.
+			partition@c0000 {
+				label = "stock-shared-prf-storage";
+				reg = <0xc0000 0x20000>;
+			};
+
+			// Factory data, with the stock bootloader's display bitstream at
+			// 0xf0000: read only.
+			partition@e0000 {
+				label = "mfg-info";
+				reg = <0xe0000 0x20000>;
+			};
+
+			// Where a firmware update is staged for the stock bootloader.
+			partition@100000 {
+				label = "firmware-slot-1";
+				reg = <0x100000 0x100000>;
+			};
+
+			// The stock recovery firmware: read only, also locked in the chip.
+			partition@200000 {
+				label = "safe-firmware";
+				reg = <0x200000 0x100000>;
+			};
+
+			// The stock 512 KiB resource banks, which the stock recovery can
+			// install into.
+			partition@300000 {
+				label = "system-resources-bank-0";
+				reg = <0x300000 0x80000>;
+			};
+
+			partition@380000 {
+				label = "system-resources-bank-1";
+				reg = <0x380000 0x80000>;
+			};
+
+			partition@400000 {
+				label = "filesystem";
+				reg = <0x400000 0xc00000>;
+			};
+		};
+	};
+};

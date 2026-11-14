@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Brian Silvestri
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_SNOWY
+    bool
+    default y
+    select LEGACY_WATCH
+    select BOARD_PARTITIONS_SNOWY

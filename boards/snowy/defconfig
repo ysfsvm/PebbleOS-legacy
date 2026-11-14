@@ -1,0 +1,34 @@
+# snowy (Pebble Time) board configuration
+
+CONFIG_SOC_STM32F439=y
+
+CONFIG_PLATFORM_BASALT=y
+
+CONFIG_GPIO=y
+CONFIG_EXTI=y
+CONFIG_I2C=y
+CONFIG_PWM=y
+CONFIG_UART=y
+
+CONFIG_FLASH_S29VS=y
+CONFIG_FLASH_LAYOUT_SNOWY=y
+
+CONFIG_INPUT_STM32_KEYS=y
+
+CONFIG_PMIC_MAX14690=y
+
+CONFIG_VIBE_PWM=y
+
+CONFIG_BACKLIGHT_PWM=y
+
+CONFIG_ALS_STM32_ADC=y
+# Backlight brightness follows the light sensor (Settings > Display), with the
+# sensor's calibration table in snowy.c.
+CONFIG_ALS_LUX_TABLE=y
+
+CONFIG_ACCEL_BMI160=y
+
+CONFIG_MAG_MAG3110=y
+
+CONFIG_BT_HCI_UART=y
+CONFIG_BT_CONTROLLER_CC2564=y

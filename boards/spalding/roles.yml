@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 retake
+# SPDX-License-Identifier: Apache-2.0
+
+# The devices are defined in C, in snowy/snowy.c, which spalding.c includes.
+console_uart:
+  symbol: "&snowy_console_uart.uart"
+  include: snowy/snowy_devices.h
+qemu_uart:
+  symbol: SNOWY_QEMU_UART
+  include: snowy/snowy_devices.h
+bt_hci_uart:
+  symbol: "&snowy_bt_hci_port.uart"
+  include: snowy/snowy_devices.h
+display:
+  symbol: "&snowy_display.disp"
+  include: snowy/snowy_devices.h
+backlight:
+  symbol: "&snowy_backlight"
+  include: snowy/snowy_devices.h
+flash:
+  symbol: S29VS_FLASH
+  include: pbl/drivers/flash/s29vs.h
+accel:
+  symbol: "&snowy_accel.accel"
+  include: snowy/snowy_devices.h
+mag:
+  symbol: "&snowy_mag.mag"
+  include: snowy/snowy_devices.h
+als:
+  symbol: "&snowy_als.als"
+  include: snowy/snowy_devices.h
+vibe:
+  symbol: "&snowy_vibe.vibe"
+  include: snowy/snowy_devices.h
+mic:
+  symbol: "&snowy_mic"
+  include: snowy/snowy_devices.h
+die_temp:
+  symbol: STM32_TEMP
+  include: pbl/drivers/temp/stm32.h
+rtc:
+  symbol: STM32_RTC_DEVICE
+  include: pbl/drivers/rtc/stm32.h

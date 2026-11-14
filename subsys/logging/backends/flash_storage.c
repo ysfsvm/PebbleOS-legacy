@@ -36,7 +36,12 @@
 
 // Configuration Defines
 #define LOG_REGION_SIZE PART_DEBUG_DB_SIZE
+#ifdef CONFIG_BOARD_PARTITIONS_SNOWY
+// The partition sits on the flash's 32 KiB bottom boot sectors.
+#define ERASE_UNIT_SIZE 0x8000
+#else
 #define ERASE_UNIT_SIZE SUBSECTOR_SIZE_BYTES
+#endif
 
 #define DEFAULT_LOG_PAGE_SIZE (0x2000)
 #if ERASE_UNIT_SIZE < DEFAULT_LOG_PAGE_SIZE
@@ -147,11 +152,19 @@ static uint8_t prv_get_next_log_file_id(uint8_t file_id) {
 }
 
 static uint32_t prv_get_unit_base_address(uint32_t addr) {
+#ifdef CONFIG_BOARD_PARTITIONS_SNOWY
+  return addr & ~(ERASE_UNIT_SIZE - 1);
+#else
   return addr & SUBSECTOR_ADDR_MASK;
+#endif
 }
 
 static void prv_erase_unit(uint32_t addr) {
+#ifdef CONFIG_BOARD_PARTITIONS_SNOWY
+  pbl_flash_erase(FLASH, addr, ERASE_UNIT_SIZE);
+#else
   pbl_flash_erase(FLASH, addr, SUBSECTOR_SIZE_BYTES);
+#endif
 }
 
 static void prv_format_flash_logging_region(void) {

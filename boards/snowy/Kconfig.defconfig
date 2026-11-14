@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 Brian Silvestri
+# SPDX-License-Identifier: Apache-2.0
+
+# 1 MiB of flash less the 16 KiB stock bootloader the image is linked past.
+config FW_FLASH_SIZE
+    default 0xfc000
+
+config QEMU_MACHINE
+    default "pebble-snowy-bb"
+
+# Like the stock firmware, use the CC2564's factory (public, TI) address, so
+# the watch keeps its stock name and address. Fall back to one derived from
+# the serial number if the chip reports none.
+choice BT_ID_ADDR_SOURCE
+    default BT_ID_ADDR_SERIAL
+endchoice
+
+config BT_ID_ADDR_PREFER_PUBLIC
+    default y
+
+# SRAM has room for NimBLE's buffer pools (about 9K), which grows the
+# kernel heap in core-coupled RAM by as much.
+config NIMBLE_POOLS_SRAM
+    default y
+
+# Kernel SRAM is nearly full: the microphone's PDM filter tables go to CCM,
+# out of the kernel heap.
+config AUDIO_STM32_I2S_PDM_TABLES_CCM
+    default y
+
+# The recovery firmware is the stock one, with its own (v2) shared PRF
+# storage. Import its keys and pairing so phones see one watch, already
+# paired, in either firmware. Stock snowy pinned no address.
+config SERVICE_SHARED_PRF_STORAGE_IMPORT_STOCK_V2
+    default y
+
+# Show the same 1% charge percent as the phone app (stock rounded to 10%).
+config BATTERY_EXACT_PERCENT
+    default y
+
+# The stock bootloader checks staged firmware, and the stock PRF image was
+# written, with the legacy STM32 CRC.
+config FIRMWARE_LEGACY_CRC
+    default y
+
+# As on silk: four event buffers run out under notification traffic, and the
+# HCI task then stops reading while the host waits on a write.
+config NIMBLE_BLE_TRANSPORT_EVT_COUNT
+    default 16
+
+# The chip deep sleeps and the host enters STOP meanwhile.
+config BT_CC2564_SLEEP
+    default y
+
+# Booting the controller (and, on the CC2564, loading its init script) runs on the HCI thread.
+config BT_HCI_THREAD_STACK_SIZE
+    default 2048
+
+# Keep the light coming on as stock did, in all but bright outdoor light. The
+# stock threshold sat above this sensor's direct sunlight reading; 4096 lux,
+# the most the setting takes, falls between shade and sun in the lux table.
+config SERVICE_LIGHT_DARK_THRESHOLD
+    default 4096
+
+# The stock firmware's per-model values: the low-battery warnings and the
+# low-power watchface follow the battery life of each model.
+config SERVICE_BATTERY_LOW_POWER_PERCENT
+    default 2 if BOARD_SNOWY_S3
+    default 3
+
+config SERVICE_BATTERY_CAPACITY_HOURS
+    default 204 if BOARD_SNOWY_S3
+    default 144
+
+# In the emulator, the Pebble protocol and the emulator's controls (buttons,
+# battery, taps) on USART2, as the stock firmware's emulator build had them:
+# the SDK tools and the integration tests talk to the watch through it.
+config QEMU_SERIAL
+    default y if SOC_STM32F4_EMULATED
+
+# The bank holds 136 colour emoji; the full set (1394, 356 KB) comes as the
+# /emoji pack file when installed (resource_map.json declares the store).
+config LEGACY_EMOJI_PACK
+    default y

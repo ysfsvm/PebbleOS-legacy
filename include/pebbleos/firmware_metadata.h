@@ -156,7 +156,13 @@ static_assert(sizeof(struct FirmwareMetadata) ==
  *
  * @ref FirmwareMetadataPlatformUnknown for boards without an entry.
  */
-#ifdef CONFIG_BOARD_ASTERIX
+#ifdef CONFIG_BOARD_SNOWY_S3
+#define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleBobbyDVT)
+#elifdef CONFIG_BOARD_SNOWY
+#define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleSnowyDVT)
+#elifdef CONFIG_BOARD_SPALDING
+#define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleSpalding)
+#elifdef CONFIG_BOARD_ASTERIX
 #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleAsterix)
 #elifdef CONFIG_BOARD_OBELIX_DVT
 #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleObelixDVT)
