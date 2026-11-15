@@ -28,7 +28,7 @@ line.
 > stock recovery firmware or the factory data, so recovery mode stays
 > available; getting a firmware back from recovery mode needs a PC with
 > Bluetooth Classic, not a phone. Read the
-> [recovery notes](https://github.com/ysfsvm/PebbleOS-legacy-firmware/blob/main/docs/RECOVERY.md)
+> [recovery page](https://ysfsvm.github.io/pebble-legacy-docs/use/recover.html)
 > before installing anything.
 >
 > **AI assistance.** The port and this fork were made with LLM coding
@@ -81,17 +81,20 @@ pbl bundle
 The recovery firmware variant (`--variant=prf`) is not part of this port:
 the watch keeps Pebble's.
 
-## Testing and tools
+## Documentation, testing and tools
+
+The documentation is at
+[ysfsvm.github.io/pebble-legacy-docs](https://ysfsvm.github.io/pebble-legacy-docs/):
+what works, updating, recovery, known issues, how the port is built and
+tested.
 
 The emulator build (`-DCONFIG_SOC_STM32F4_EMULATED=y`) runs Core's
 integration tests behind the stock bootloader; the board page says how.
-The tooling used for this port lives in the documentation repository,
-[PebbleOS-legacy-firmware](https://github.com/ysfsvm/PebbleOS-legacy-firmware):
+The tool used for this port is
+[pebble-legacy-tools](https://github.com/ysfsvm/pebble-legacy-tools):
 image registry and clean builds, emulator and firmware update tests, a
 CC2564 stand-in for the emulator, the object-by-object comparison of Core's
 boards, watch log tools, PC-side recovery, and the measurement protocol.
-The same repository holds the known issues, the incident reports and the
-roadmap.
 
 The phone app is Core's, with the changes these watches need, in
 [mobileapp-legacy](https://github.com/ysfsvm/mobileapp-legacy).

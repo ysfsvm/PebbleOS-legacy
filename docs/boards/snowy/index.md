@@ -239,7 +239,7 @@ phone app that knows the entry installs the file after the firmware update
 (PutBytes, object type file); one that does not ignores it and the update
 works as usual. The file survives firmware updates and is removed by a
 factory reset. From a PC it is installed over the developer connection
-with `tools/watch/install_emoji_pack.py` of the documentation repository.
+with `python -m plt.emoji_pack` from the port's tools.
 
 ## Status
 
