@@ -39,7 +39,7 @@
 #include <pbl/soc/stm32/sleep.h>
 
 #include <uzlib.h>
-#if PBL_ROUND
+#ifdef CONFIG_DISPLAY_ICE40LP_ROUND
 #include <applib/graphics/framebuffer.h>
 #include <mfg/mfg_info.h>
 #endif
@@ -51,7 +51,7 @@
 #define BOOT_CMD_DRAW_SCENE 4
 #define BOOT_SCENE_SPLASH   1
 
-#if PBL_ROUND
+#ifdef CONFIG_DISPLAY_ICE40LP_ROUND
 // The panel is scanned in rows, top to bottom.
 #define DISP_LINES  CONFIG_PLATFORM_DISPLAY_HEIGHT
 #define DISP_PIXELS CONFIG_PLATFORM_DISPLAY_WIDTH
@@ -84,7 +84,7 @@ static bool s_programmed;
 //! Watch worn rotated by 180 degrees: frames go out flipped both ways.
 static bool s_rotated_180;
 static struct pbl_timer s_frame_timer;
-#if PBL_ROUND
+#ifdef CONFIG_DISPLAY_ICE40LP_ROUND
 //! Factory measured offset of the panel, in pixels, read at the first frame.
 static GPoint s_offset;
 static bool s_offset_read;
@@ -379,7 +379,7 @@ static int prv_init(const struct pbl_display *disp) {
   return 0;
 }
 
-#if PBL_ROUND
+#ifdef CONFIG_DISPLAY_ICE40LP_ROUND
 static const GBitmapDataRowInfoInternal *prv_row_info(int y) {
   return &g_gbitmap_legacy_3x_data_row_infos[y];
 }
@@ -395,7 +395,7 @@ static uint8_t prv_round_pixel(const uint8_t *row, const GBitmapDataRowInfoInter
 
 //! One panel line: the MSBs of every pixel's color channels, then the LSBs.
 static void prv_get_line(const uint8_t *fb, int index, uint8_t *line) {
-#if PBL_ROUND
+#ifdef CONFIG_DISPLAY_ICE40LP_ROUND
   int y = index - s_offset.y;
   if (y < 0 || y >= CONFIG_PLATFORM_DISPLAY_HEIGHT) {
     memset(line, 0, DISP_PIXELS);
@@ -575,7 +575,7 @@ static int prv_update(const struct pbl_display *disp, const struct pbl_display_b
     return 0;
   }
 
-#if PBL_ROUND
+#ifdef CONFIG_DISPLAY_ICE40LP_ROUND
   if (!s_offset_read) {
     s_offset = mfg_info_get_disp_offsets();
     s_offset_read = true;

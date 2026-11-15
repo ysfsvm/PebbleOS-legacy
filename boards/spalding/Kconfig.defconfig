@@ -8,6 +8,9 @@ config FW_FLASH_SIZE
 config QEMU_MACHINE
     default "pebble-s4-bb"
 
+config DISPLAY_ICE40LP_ROUND
+    default y
+
 # Like the stock firmware, use the CC2564's factory (public, TI) address, so
 # the watch keeps its stock name and address. Fall back to one derived from
 # the serial number if the chip reports none.

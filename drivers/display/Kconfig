@@ -44,6 +44,14 @@ config DISPLAY_ICE40LP_STM32
       Support for the Pebble Time display, driven through an iCE40LP
       framebuffer FPGA on an STM32F4 SPI.
 
+config DISPLAY_ICE40LP_ROUND
+    bool "iCE40LP round panel"
+    depends on DISPLAY_ICE40LP_STM32 && PLATFORM_ROUND
+    help
+      The FPGA drives the round panel of the Pebble Time Round: it takes
+      rows of the packed round framebuffer, shifted by the factory display
+      offsets, instead of columns.
+
 config DISPLAY_QEMU
     bool "QEMU Framebuffer Display"
     default DT_HAS_QEMU_PEBBLE_DISPLAY_ENABLED

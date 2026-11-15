@@ -262,9 +262,9 @@ Time Steel and the Time Round have no recorded run on hardware.
   against a 33 ms target, plus 24.7 ms to send to the display. This tree's
   build container brings an assembly `memcpy`/`memset` where the v4.46
   builds had byte loops; the effect has not been measured on a watch.
-- **spalding.** Its round display path is not compiled: `PBL_ROUND` is
-  undefined in `drivers/display/ice40lp/ice40lp_stm32.c`, which drops the
-  round row layout and the factory display offsets. It has not been run.
+- **spalding.** Its round display path (`DISPLAY_ICE40LP_ROUND`: rows of
+  the packed round framebuffer, shifted by the factory display offsets)
+  builds and links, but has never run, in this port or the v4.46 one.
 - **The devicetree is not validated against dtschema**; the root
   compatible `pebble,snowy` may need its vendor prefix registered.
 - **Board values.** Some `Kconfig.defconfig` defaults are firmware options
@@ -278,7 +278,7 @@ includes `snowy/snowy.c`, `snowy.h` and `snowy.dtsi`, where
 MAG3110 axes, a push-pull display rail and the spalding FPGA bitstream. Its
 `Kconfig.defconfig` sets the stock battery model (44 h, low power at 7 %,
 warnings at 34 % and 20 %) and `APP_GLANCE_ON_DEMAND`. A release build
-uses 939 755 B of flash (91.04 %), 70 400 B of kernel SRAM (81.85 %),
+uses 939 979 B of flash (91.07 %), 70 400 B of kernel SRAM (81.85 %),
 37 456 B of CCM (57.15 %) and 522 697 B of resources (99.70 %).
 
 ## Licensing
