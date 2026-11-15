@@ -60,6 +60,14 @@ config DISPLAY_ICE40LP_STM32_FAST_LINE
       DMA interrupt for every line of every frame, at -O3 instead of the
       firmware's -Os.
 
+config DISPLAY_ICE40LP_STM32_BUSY_EDGE
+    bool "Wake on the FPGA's BUSY edge before a frame"
+    depends on DISPLAY_ICE40LP_STM32
+    help
+      Before a frame, sleep until BUSY's falling edge instead of polling
+      BUSY with 1 ms sleeps. Without an edge within 40 ms it polls as
+      before.
+
 config DISPLAY_QEMU
     bool "QEMU Framebuffer Display"
     default DT_HAS_QEMU_PEBBLE_DISPLAY_ENABLED

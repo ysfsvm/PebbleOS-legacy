@@ -32,6 +32,7 @@
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/malloc.h>
 #include <pbl/kernel/sched.h>
+#include <pbl/kernel/sem.h>
 #include <pbl/kernel/time.h>
 #include <pbl/kernel/timer.h>
 #include <pbl/logging/logging.h>
@@ -171,6 +172,34 @@ static bool prv_wait_not_busy(void) {
   }
   return false;
 }
+
+#ifdef CONFIG_DISPLAY_ICE40LP_STM32_BUSY_EDGE
+//! Given by BUSY's falling edge while a task waits for a frame.
+static PBL_SEM_DEFINE(s_busy_fell, 0, 1);
+static volatile bool s_waiting_frame;
+
+//! Like prv_wait_not_busy(), but a task sleeps until BUSY's falling edge instead of polling.
+static bool prv_wait_not_busy_edge(void) {
+  const ExtiConfig busy = pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy);
+
+  if (prv_busy() && pbl_kernel_is_running() && !pbl_in_isr() && !pbl_irq_is_locked()) {
+    (void)pbl_sem_take(&s_busy_fell, PBL_NO_WAIT);
+    // STOP mode would delay the wake-up.
+    soc_stm32_stop_block();
+    s_waiting_frame = true;
+    exti_enable(busy);
+    // Arm before looking again, so the falling edge cannot be missed.
+    if (prv_busy()) {
+      (void)pbl_sem_take(&s_busy_fell, PBL_MSEC(BUSY_TIMEOUT_US / 1000));
+    }
+    s_waiting_frame = false;
+    exti_disable(busy);
+    soc_stm32_stop_release();
+  }
+  // The level decides: after a timeout or a glitch this polls as before.
+  return prv_wait_not_busy();
+}
+#endif
 
 //! Inflate the bitstream to the FPGA, a line buffer at a time; they are not
 //! in use yet. @return false if it did not inflate to the end.
@@ -472,6 +501,14 @@ static void prv_send_next_line(void) {
 }
 
 static void prv_busy_isr(void) {
+#ifdef CONFIG_DISPLAY_ICE40LP_STM32_BUSY_EDGE
+  if (s_waiting_frame) {
+    s_waiting_frame = false;
+    exti_disable(pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy));
+    pbl_sem_give(&s_busy_fell);
+    return;
+  }
+#endif
   if (!s_waiting_busy) {
     return;
   }
@@ -506,7 +543,11 @@ static void prv_dma_done(void *context, bool is_complete) {
 static void prv_start_dma_frame(const uint8_t *fb) {
   const BoardConfigIce40Display *cfg = &BOARD_CONFIG_DISPLAY;
 
+#ifdef CONFIG_DISPLAY_ICE40LP_STM32_BUSY_EDGE
+  if (!prv_wait_not_busy_edge()) {
+#else
   if (!prv_wait_not_busy()) {
+#endif
     // A new frame (SCS falling edge) resets the FPGA's frame logic. Stuck busy: configure it
     // again, as the stock firmware did.
     PBL_LOG_WRN("Display busy before frame: configuring the FPGA again");

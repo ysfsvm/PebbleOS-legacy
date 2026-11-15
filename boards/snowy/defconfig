@@ -35,3 +35,6 @@ CONFIG_BT_CONTROLLER_CC2564=y
 
 # Pack display lines in the DMA interrupt at -O3.
 CONFIG_DISPLAY_ICE40LP_STM32_FAST_LINE=y
+
+# Wake on the display FPGA's BUSY edge before a frame.
+CONFIG_DISPLAY_ICE40LP_STM32_BUSY_EDGE=y
