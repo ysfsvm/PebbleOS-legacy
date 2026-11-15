@@ -8,7 +8,10 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
+#include <pbl/bluetooth/hci_uart.h>
+#include <pbl/crc/crc.h>
 #include <pbl/input/input.h>
+#include <pbl/kernel/heap.h>
 #include <pbl/kernel/idle.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/syscall.h>
@@ -228,6 +231,17 @@ static void prv_input_cb(const struct pbl_input_event *evt, void *user_data) {
 
 PBL_INPUT_CALLBACK_DEFINE(prv_input_cb, nullptr);
 
+//! eHCILL state and counters of the HCI transport: sleeps, wakes by the controller and by us,
+//! repeated wake requests, CTS edges that no wake request followed.
+static void prv_log_hcill(void) {
+#ifdef CONFIG_BT_HCI_UART_LEGACY
+  char stats[48];
+
+  pbl_bt_hci_uart_copy_rx_stats(stats, sizeof(stats));
+  PBL_LOG_INFO("PERF hcill %s", stats);
+#endif
+}
+
 static void prv_report(struct pbl_work *work) {
   typeof(s_acc) acc;
   uint32_t counters[PERF_NUM_COUNTERS];
@@ -290,6 +304,10 @@ static void prv_report(struct pbl_work *work) {
                s_seq, acc.part_us[PERF_PART_APP] / frames,
                acc.part_us[PERF_PART_COMPOSITOR] / frames, acc.flush_us / frames,
                acc.part_us[PERF_PART_WAIT] / frames, acc.part_us[PERF_PART_BUSY] / frames);
+  // Every ten minutes.
+  if ((s_seq % 120U) == 0U) {
+    prv_log_hcill();
+  }
   s_seq++;
 
   (void)pbl_delayed_work_reschedule(&pbl_sys_workq, &s_report_work, PBL_MSEC(REPORT_PERIOD_MS));
@@ -298,8 +316,9 @@ static void prv_report(struct pbl_work *work) {
 // Sampling profiler
 ///////////////////////////////////////////////////////////////////////////////
 // While the key sequence plays, TIM7 interrupts about 1000 times a second, above every
-// interrupt lock, and notes where the thread it interrupted was executing: a histogram of the
-// firmware in 1 KiB steps. The largest entries go to the log afterwards; the PC side turns
+// interrupt lock. While the application draws a frame it notes where the thread it interrupted
+// was executing: a histogram of the firmware in 1 KiB steps, and two 1 KiB ranges (the heap
+// and the CRC/64-bit division helpers) in 16 byte steps. The largest entries go to the log afterwards; the PC side turns
 // them into function names with the build's ELF.
 
 #ifdef CONFIG_SOC_STM32F4_EMULATED
@@ -318,6 +337,15 @@ static void prv_profile_stop(void) {
 // A prime number of microseconds, so the samples do not walk in step with the kernel tick.
 #define PROFILE_PERIOD_US 991U
 
+#define ZOOM_SHIFT   4U
+#define ZOOM_BUCKETS 64U
+#define ZOOM_RANGES  2U
+
+static uint32_t s_zoom_base[ZOOM_RANGES];
+static uint16_t s_zoom[ZOOM_RANGES][ZOOM_BUCKETS];
+//! Samples over the whole sequence; the rest count only those while the application draws.
+static uint32_t s_profile_all;
+
 static uint16_t s_profile[PROFILE_BUCKETS];
 //! Samples in all, in a thread outside the firmware image (RAM: an app), and in an interrupt.
 static uint32_t s_profile_total;
@@ -329,6 +357,10 @@ PBL_IRQ_DIRECT(TIM7, 5, PBL_IRQ_ZERO_LATENCY) {
   const uint32_t exc_return = (uint32_t)__builtin_return_address(0);
 
   TIM7->SR = 0U;
+  s_profile_all++;
+  if (!s_part_open[PERF_PART_APP]) {
+    return;
+  }
   s_profile_total++;
 
   if ((exc_return & 0x4U) == 0U) {
@@ -338,6 +370,12 @@ PBL_IRQ_DIRECT(TIM7, 5, PBL_IRQ_ZERO_LATENCY) {
   }
 
   const uint32_t pc = ((const uint32_t *)__get_PSP())[6];
+  for (unsigned int z = 0U; z < ZOOM_RANGES; z++) {
+    const uint32_t zb = (pc - s_zoom_base[z]) >> ZOOM_SHIFT;
+    if (zb < ZOOM_BUCKETS && s_zoom[z][zb] != UINT16_MAX) {
+      s_zoom[z][zb]++;
+    }
+  }
   const uint32_t bucket = (pc - PROFILE_BASE) >> PROFILE_SHIFT;
   if (bucket < PROFILE_BUCKETS) {
     if (s_profile[bucket] != UINT16_MAX) {
@@ -354,6 +392,14 @@ static void prv_profile_start(void) {
   for (unsigned int i = 0U; i < PROFILE_BUCKETS; i++) {
     s_profile[i] = 0U;
   }
+  s_zoom_base[0] = (uint32_t)pbl_heap_alloc & ~1U;
+  s_zoom_base[1] = (uint32_t)pbl_crc32 & ~1U;
+  for (unsigned int z = 0U; z < ZOOM_RANGES; z++) {
+    for (unsigned int i = 0U; i < ZOOM_BUCKETS; i++) {
+      s_zoom[z][i] = 0U;
+    }
+  }
+  s_profile_all = 0U;
   s_profile_total = 0U;
   s_profile_other = 0U;
   s_profile_isr = 0U;
@@ -381,6 +427,14 @@ static void prv_profile_stop(void) {
 
   PBL_LOG_INFO("PERF profile samples %" PRIu32 " in interrupts %" PRIu32 " outside %" PRIu32,
                s_profile_total, s_profile_isr, s_profile_other);
+  PBL_LOG_INFO("PERF profile all %" PRIu32, s_profile_all);
+  for (unsigned int z = 0U; z < ZOOM_RANGES; z++) {
+    for (unsigned int i = 0U; i < ZOOM_BUCKETS; i += 4U) {
+      const uint16_t *c = &s_zoom[z][i];
+      PBL_LOG_INFO("PERF zoom %" PRIx32 ": %u %u %u %u", s_zoom_base[z] + (i << ZOOM_SHIFT), c[0],
+                   c[1], c[2], c[3]);
+    }
+  }
 
   // The largest buckets, three to a line.
   uint32_t addr[3];
@@ -502,6 +556,7 @@ static bool s_bench_running;
 static void prv_script_done(struct pbl_work *work) {
   prv_log_key();
   PBL_LOG_INFO("PERF script done");
+  prv_log_hcill();
   prv_profile_stop();
   s_script_running = false;
   if (s_bench_running) {
