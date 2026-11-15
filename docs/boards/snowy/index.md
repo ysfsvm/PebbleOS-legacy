@@ -267,9 +267,8 @@ Time Steel and the Time Round have no recorded run on hardware.
   round row layout and the factory display offsets. It has not been run.
 - **The devicetree is not validated against dtschema**; the root
   compatible `pebble,snowy` may need its vendor prefix registered.
-- **Board values.** `BOARD_CONFIG` and `BOARD_CONFIG_POWER` in `snowy.h`
-  are read nowhere; the Kconfig defaults apply. Some `Kconfig.defconfig`
-  defaults are firmware options that may belong in `snowy.conf`.
+- **Board values.** Some `Kconfig.defconfig` defaults are firmware options
+  that may belong in `snowy.conf`.
 
 ## spalding
 

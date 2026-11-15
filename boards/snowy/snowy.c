@@ -251,9 +251,3 @@ PBL_AUDIO_STM32_I2S_PDM_DEFINE(snowy_mic_dai, "i2s2", SPI2, RCC_APB1Periph_SPI2,
                                PBL_GPIO(STM32_GPIOB, 10, 0), PBL_GPIO(STM32_GPIOB, 15, 0),
                                GPIO_AF_SPI2, 250);
 PBL_AUDIO_CARD_DEFINE(snowy_mic, "mic", &snowy_mic_dai, nullptr, nullptr, 0, 0);
-
-void board_early_init(void) {
-}
-
-void board_init(void) {
-}

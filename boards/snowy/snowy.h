@@ -11,34 +11,6 @@
 #include <pbl/services/imu/units.h>
 #include <pbl/soc/stm32/board.h>
 
-#define BT_VENDOR_ID   0x0154
-#define BT_VENDOR_NAME "Pebble Technology"
-
-static const BoardConfig BOARD_CONFIG = {
-  // As the lux-calibrated Core watches: the backlight stops coming on in
-  // light brighter than a desk lamp.
-  .ambient_light_dark_threshold = 800,
-  .ambient_k_delta_threshold = 100,
-#ifdef CONFIG_BOARD_SPALDING
-  .backlight_on_percent = 25,
-#else
-  .backlight_on_percent = 45,
-#endif
-};
-
-static const BoardConfigPower BOARD_CONFIG_POWER = {
-#ifdef CONFIG_BOARD_SNOWY_S3
-  .low_power_threshold = 2,
-  .battery_capacity_hours = 204,
-#elifdef CONFIG_BOARD_SPALDING
-  .low_power_threshold = 7,
-  .battery_capacity_hours = 44,
-#else
-  .low_power_threshold = 3,
-  .battery_capacity_hours = 144,
-#endif
-};
-
 static const BoardConfigAccel BOARD_CONFIG_ACCEL = {
   .accel_config =
       {

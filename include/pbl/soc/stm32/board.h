@@ -13,9 +13,6 @@
 #include <pbl/soc/stm32/cmsis.h>
 // clang-format on
 
-#define GPIO_Port_NULL (nullptr)
-#define GPIO_Pin_NULL  ((uint16_t)-1)
-
 //! An EXTI line and the GPIO port routed to it.
 typedef struct {
   uint8_t exti_port_source; ///< Port index, A = 0 (EXTI_PortSourceGPIOx)
@@ -29,25 +26,6 @@ static inline ExtiConfig pbl_exti_stm32_config(const struct pbl_gpio *gpio) {
     .exti_line = gpio->pin,
   };
 }
-
-typedef struct {
-  // Ambient Light Configuration
-  /////////////////////////////////////////////////////////////////////////////
-  const uint32_t ambient_light_dark_threshold;
-  const uint32_t ambient_k_delta_threshold;
-
-  const uint8_t backlight_on_percent; // percent of max possible brightness
-} BoardConfig;
-
-// Power Configuration
-/////////////////////////////////////////////////////////////////////////////
-typedef struct {
-  //! Percentage for watch only mode
-  const uint8_t low_power_threshold;
-
-  //! Approximate hours of battery life
-  const uint16_t battery_capacity_hours;
-} BoardConfigPower;
 
 typedef enum {
   AccelThresholdLow,  ///< A sensitive state used for stationary mode
@@ -65,7 +43,6 @@ typedef struct {
 typedef struct {
   const AccelConfig accel_config;
   const struct pbl_gpio accel_int_gpios[2];
-  uint8_t default_motion_sensitivity;
 } BoardConfigAccel;
 
 struct pbl_dma_stm32_stream;
@@ -96,6 +73,3 @@ typedef struct {
 } BoardConfigIce40Display;
 
 typedef const struct UARTDevice UARTDevice;
-
-void board_early_init(void);
-void board_init(void);
