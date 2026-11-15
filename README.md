@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/_static/images/logo.svg" alt="PebbleOS" width="320">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/_static/images/logo-legacy-dark.svg">
+    <img src="docs/_static/images/logo-legacy-light.svg" alt="PebbleOS legacy" width="320">
+  </picture>
 </p>
 
 # PebbleOS for the Pebble Time
