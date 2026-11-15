@@ -153,6 +153,20 @@ class PebbleBundle:
         self.has_loghash = True
         return True
 
+    def add_file(self, path, target):
+        """A file the phone installs on the watch's filesystem as `target` after the update."""
+        check_paths(path)
+        self.bundle_files.append(path)
+        self.bundle_manifest.setdefault("files", []).append(
+            {
+                "name": os.path.basename(path),
+                "target": target,
+                "size": flen(path),
+                "crc": stm32crc(path),
+            }
+        )
+        return True
+
     def add_license(self, license_path):
         if self.has_license:
             raise RuntimeError("Added multiple license to a single bundle")

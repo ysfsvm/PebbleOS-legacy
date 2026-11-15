@@ -161,6 +161,9 @@ def cmd_bundle(args):
     bundle.add_license(os.path.join(REPO_ROOT, "LICENSE"))
     if fw_type == "normal" and args.layouts:
         bundle.add_layouts(args.layouts)
+    for spec in args.file or []:
+        path, _, target = spec.rpartition(":")
+        bundle.add_file(path, target)
 
     out_file = os.path.join(
         args.outdir,
@@ -235,6 +238,8 @@ def main():
     p.add_argument("--resources")
     p.add_argument("--loghash")
     p.add_argument("--layouts")
+    p.add_argument("--file", action="append", metavar="PATH:TARGET",
+                   help="file to install on the watch's filesystem as TARGET")
     p.set_defaults(func=cmd_bundle)
 
     p = sub.add_parser("qemu-image-micro")

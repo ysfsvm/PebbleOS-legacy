@@ -231,18 +231,11 @@ function(pbl_link_firmware)
   if(CONFIG_LOG_HASHED)
     list(APPEND bundle_args --loghash ${PBL_LOG_DICT})
   endif()
-  add_custom_target(bundle
-    COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_FIRMWARE_PY} bundle ${bundle_args}
-    DEPENDS pbl_firmware
-    WORKING_DIRECTORY ${PBL_BASE}
-    COMMENT "Bundling firmware"
-    VERBATIM
-  )
-
   # --- Emoji pack ---------------------------------------------------------
 
   # The full emoji fonts as the /emoji pack file, built with every bundle so
-  # the pack always matches the firmware's fonts.
+  # the pack always matches the firmware's fonts. The bundle carries it as a
+  # file for the phone to install on the watch after the update.
   if(CONFIG_LEGACY_EMOJI_PACK)
     set(emoji_pack ${PROJECT_BINARY_DIR}/emoji_${PBL_BOARD_NORMALIZED}.pbpack)
     add_custom_target(emoji_pack
@@ -252,6 +245,18 @@ function(pbl_link_firmware)
       COMMENT "Packing the emoji fonts"
       VERBATIM
     )
+    list(APPEND bundle_args --file ${emoji_pack}:emoji)
+  endif()
+
+  add_custom_target(bundle
+    COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_FIRMWARE_PY} bundle ${bundle_args}
+    DEPENDS pbl_firmware
+    WORKING_DIRECTORY ${PBL_BASE}
+    COMMENT "Bundling firmware"
+    VERBATIM
+  )
+
+  if(CONFIG_LEGACY_EMOJI_PACK)
     add_dependencies(bundle emoji_pack)
   endif()
 

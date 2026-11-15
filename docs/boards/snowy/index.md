@@ -223,6 +223,24 @@ kernel heap (the remaining 35 248 B). The NimBLE pools
 SRAM: DMA cannot reach CCM. The emulator build uses 969 011 B of flash and
 81 152 B of kernel SRAM.
 
+## Emoji
+
+The system resources fill their flash region (98.99 %), so the firmware
+carries the color emoji fonts only as a subset of 136 emoji. With
+`CONFIG_LEGACY_EMOJI_PACK` (on by default for this board) the watch draws
+every other emoji from a file named `emoji` on its filesystem: a resource
+pack with the four full emoji fonts (about 360 KB). Without the file the
+watch draws the subset, as before; an emoji outside it shows as a box.
+
+Every bundle is built with its pack (`emoji_<board>.pbpack` in the build
+directory, made by `tools/emoji_pack.py`) and carries it: the bundle's
+manifest lists it under `files`, with the name it takes on the watch. A
+phone app that knows the entry installs the file after the firmware update
+(PutBytes, object type file); one that does not ignores it and the update
+works as usual. The file survives firmware updates and is removed by a
+factory reset. From a PC it is installed over the developer connection
+with `tools/watch/install_emoji_pack.py` of the documentation repository.
+
 ## Status
 
 Checked on one retail Pebble Time (`snowy@dvt`) with this tree on Core

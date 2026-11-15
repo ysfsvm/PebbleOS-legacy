@@ -43,6 +43,10 @@ The board page, [`docs/boards/snowy`](docs/boards/snowy/index.md), has the
 hardware, the flash layout, what is shared with the stock firmware, the
 feature table and the open issues.
 
+The firmware has room for 136 color emoji; the rest come from a pack file
+that every bundle carries and the phone app installs after an update (see
+"Emoji" on the board page).
+
 Bluetooth is LE only, through NimBLE: Bluetooth Classic and the original
 Pebble phone app are not supported.
 
