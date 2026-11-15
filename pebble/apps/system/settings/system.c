@@ -1017,12 +1017,14 @@ static void prv_certification_window_load(Window *window) {
                                       .arg2 = prv_get_place_of_origin(),
                                     });
 
+#ifndef CERTIFICATION_NO_DC_INPUT
   // Add DC input
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem){
                                       .draw_cell_fn = prv_draw_regulatory_id_cell,
                                       .arg1 = pbl_i18n_get("DC Input", data),
                                       .arg2 = prv_get_dc_input(),
                                     });
+#endif
 
   // Add rated voltage
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem){
@@ -1038,12 +1040,14 @@ static void prv_certification_window_load(Window *window) {
                                       .arg2 = prv_get_milliampere_hour(),
                                     });
 
+#ifndef CERTIFICATION_NO_WATT_HOUR
   // Add watt-hour
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem){
                                       .draw_cell_fn = prv_draw_regulatory_id_cell,
                                       .arg1 = pbl_i18n_get("Watt-hour", data),
                                       .arg2 = prv_get_watt_hour(),
                                     });
+#endif
 
   if (flags->has_usa_fcc) {
     prv_append_certification_menu(cd, &(SystemCertificationMenuItem){

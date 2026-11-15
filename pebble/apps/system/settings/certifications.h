@@ -121,6 +121,51 @@ static const CertificationIds s_certification_ids_getafix = {
   .usa_fcc_id = "2BQB2-PR2",
 };
 
+static const RegulatoryFlags s_regulatory_flags_snowy = {
+  .has_canada_ic = true,
+  .has_china_cmiit = true,
+  .has_eu_ce = true,
+  .has_eu_weee = true,
+  .has_japan_telec_r = true,
+  .has_japan_telec_t = true,
+  .has_korea_kcc = true,
+  .has_usa_fcc = true,
+};
+
+static const CertificationIds s_certification_ids_snowy = {
+  .company_name = "Pebble Technology Corp.",
+  .product_type = "Smartwatch",
+  .trademark = "Pebble",
+  .place_of_origin = "Made in China",
+  .rated_voltage = "3.8 V",
+  .milliampere_hour = "150 mAh",
+  .watt_hour = "0.57 Wh",
+  .canada_ic_id = "10805A-501",
+  .china_cmiit_id = "2015DJ1504",
+  .japan_telec_r_id = "201-150104",
+  .japan_telec_t_id = "D 15 0015 201",
+  .korea_kcc_id = "MSIP-CRM-PEB-WQ3",
+  .usa_fcc_id = "RGQ-501",
+};
+
+static const RegulatoryFlags s_regulatory_flags_spalding = {
+  .has_canada_ic = true,
+  .has_eu_ce = true,
+  .has_eu_weee = true,
+  .has_usa_fcc = true,
+};
+
+static const CertificationIds s_certification_ids_spalding = {
+  .company_name = "Pebble Technology Corp.",
+  .product_type = "Smartwatch",
+  .trademark = "Pebble",
+  .place_of_origin = "Made in China",
+  .rated_voltage = "3.8 V",
+  .milliampere_hour = "58 mAh",
+  .canada_ic_id = "10805A-601",
+  .usa_fcc_id = "RGQ-601",
+};
+
 static const RegulatoryFlags *prv_get_regulatory_flags(void) {
 #ifdef CONFIG_BOARD_ASTERIX
   // TODO: add applicable flags
@@ -129,6 +174,10 @@ static const RegulatoryFlags *prv_get_regulatory_flags(void) {
   return &s_regulatory_flags_obelix;
 #elifdef CONFIG_BOARD_GETAFIX
   return &s_regulatory_flags_getafix;
+#elifdef CONFIG_BOARD_SNOWY
+  return &s_regulatory_flags_snowy;
+#elifdef CONFIG_BOARD_SPALDING
+  return &s_regulatory_flags_spalding;
 #else
   return &s_regulatory_flags_fallback;
 #endif
@@ -143,10 +192,22 @@ static const CertificationIds *prv_get_certification_ids(void) {
   return &s_certification_ids_obelix;
 #elifdef CONFIG_BOARD_GETAFIX
   return &s_certification_ids_getafix;
+#elifdef CONFIG_BOARD_SNOWY
+  return &s_certification_ids_snowy;
+#elifdef CONFIG_BOARD_SPALDING
+  return &s_certification_ids_spalding;
 #else
   return &s_certification_ids_fallback;
 #endif
 }
+
+//! A rating the product does not declare gets no row in the menu.
+#if defined(CONFIG_BOARD_SNOWY) || defined(CONFIG_BOARD_SPALDING)
+#define CERTIFICATION_NO_DC_INPUT
+#endif
+#ifdef CONFIG_BOARD_SPALDING
+#define CERTIFICATION_NO_WATT_HOUR
+#endif
 
 #define ID_GETTER(ID_KIND)                                                               \
   static const char *prv_get_##ID_KIND(void) {                                           \
@@ -157,10 +218,14 @@ ID_GETTER(company_name)
 ID_GETTER(product_type)
 ID_GETTER(trademark)
 ID_GETTER(place_of_origin)
+#ifndef CERTIFICATION_NO_DC_INPUT
 ID_GETTER(dc_input)
+#endif
 ID_GETTER(rated_voltage)
 ID_GETTER(milliampere_hour)
+#ifndef CERTIFICATION_NO_WATT_HOUR
 ID_GETTER(watt_hour)
+#endif
 ID_GETTER(canada_ic_id)
 ID_GETTER(china_cmiit_id)
 ID_GETTER(japan_telec_r_id)
