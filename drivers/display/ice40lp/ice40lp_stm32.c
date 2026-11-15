@@ -27,6 +27,7 @@
 #include <pbl/drivers/dma/stm32.h>
 #include <pbl/drivers/exti.h>
 #include <pbl/drivers/gpio/stm32.h>
+#include <pbl/kernel/compiler.h>
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/malloc.h>
@@ -393,8 +394,15 @@ static uint8_t prv_round_pixel(const uint8_t *row, const GBitmapDataRowInfoInter
 }
 #endif
 
+#ifdef CONFIG_DISPLAY_ICE40LP_STM32_FAST_LINE
+// -O3 moves the rotation test out of the loop; -O2 compiles it like -Os.
+#define LINE_OPTIMIZE PBL_OPTIMIZE("O3")
+#else
+#define LINE_OPTIMIZE
+#endif
+
 //! One panel line: the MSBs of every pixel's color channels, then the LSBs.
-static void prv_get_line(const uint8_t *fb, int index, uint8_t *line) {
+static LINE_OPTIMIZE void prv_get_line(const uint8_t *fb, int index, uint8_t *line) {
 #ifdef CONFIG_DISPLAY_ICE40LP_ROUND
   int y = index - s_offset.y;
   if (y < 0 || y >= CONFIG_PLATFORM_DISPLAY_HEIGHT) {

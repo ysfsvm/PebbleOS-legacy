@@ -52,6 +52,14 @@ config DISPLAY_ICE40LP_ROUND
       rows of the packed round framebuffer, shifted by the factory display
       offsets, instead of columns.
 
+config DISPLAY_ICE40LP_STM32_FAST_LINE
+    bool "Optimize the line packing for speed"
+    depends on DISPLAY_ICE40LP_STM32
+    help
+      Compile the function that packs each panel line, which runs in the
+      DMA interrupt for every line of every frame, at -O3 instead of the
+      firmware's -Os.
+
 config DISPLAY_QEMU
     bool "QEMU Framebuffer Display"
     default DT_HAS_QEMU_PEBBLE_DISPLAY_ENABLED
