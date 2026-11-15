@@ -35,8 +35,7 @@ config ALS_STM32_ADC
     bool "Analog sensor on the STM32 ADC"
     depends on SOC_STM32F4
     help
-      Photodiode read through ADC1 against VREFINT, powered by a GPIO
-      (silk).
+      Light sensor read through ADC1 against VREFINT, powered by a GPIO.
 
 config ALS_THRESHOLD_LOCAL
     bool "Keep the dark threshold off the phone sync"

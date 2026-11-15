@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 //! Vibe motor driven by PWM, as the stock firmware did it. Single direction
-//! (silk: TI DRV2603): the duty cycle is scaled by the supply voltage so the
+//! (e.g. a TI DRV2603): the duty cycle is scaled by the supply voltage so the
 //! strength does not change as the battery discharges. H-bridge (snowy): 50%
 //! is stopped and lower duty cycles run the motor in reverse, for braking.
 

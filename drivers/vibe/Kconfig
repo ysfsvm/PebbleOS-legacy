@@ -12,8 +12,9 @@ config VIBE_PWM
     bool "PWM-driven motor"
     depends on PWM
     help
-      Single-direction vibe motor driven by a PWM output, its strength
-      scaled by the supply voltage (e.g. the TI DRV2603 on silk).
+      Vibe motor driven by a PWM output: single direction, its strength
+      scaled by the supply voltage (e.g. through a TI DRV2603), or through
+      an H-bridge.
 
 config VIBE_SHELL
     bool "Shell commands"
