@@ -2,6 +2,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "notification_window.h"
+#ifdef CONFIG_LEGACY_PERF_PROBE
+#include <pbl/debug/perf_probe.h>
+#endif
 
 #include "notification_window_private.h"
 #include "notifications_presented_list.h"
@@ -1713,6 +1716,9 @@ void notification_window_handle_reminder(PebbleReminderEvent *e) {
 }
 
 void notification_window_handle_notification(PebbleSysNotificationEvent *e) {
+#ifdef CONFIG_LEGACY_PERF_PROBE
+  perf_probe_mark("notification");
+#endif
   if (!s_in_use && e->type != NotificationAdded) {
     return;
   }

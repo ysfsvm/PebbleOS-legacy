@@ -2,6 +2,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "phone_ui.h"
+#ifdef CONFIG_LEGACY_PERF_PROBE
+#include <pbl/debug/perf_probe.h>
+#endif
 
 #include "phone_formatting.h"
 
@@ -1078,6 +1081,9 @@ static bool prv_check_popups_are_blocked(void) {
 //!
 void phone_ui_handle_incoming_call(PebblePhoneCaller *caller, bool show_ongoing_call_ui,
                                    PhoneCallSource source) {
+#ifdef CONFIG_LEGACY_PERF_PROBE
+  perf_probe_mark("incoming call");
+#endif
   if (prv_check_popups_are_blocked()) {
     return;
   }

@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include <pbl/board/partitions.h>
+#include <pbl/debug/perf_probe.h>
 #include <pbl/drivers/flash.h>
 #include <pbl/drivers/flash/flash_guard.h>
 #include <pbl/drivers/flash/s29vs.h>
@@ -981,6 +982,8 @@ static int prv_read(const struct pbl_flash *flash, uint32_t addr, void *buf, siz
 static int prv_write(const struct pbl_flash *flash, uint32_t addr, const void *buf, size_t len) {
   const uint8_t *data = buf;
 
+  perf_probe_count(PERF_FLASH_WRITE);
+
   if (flash_guard_is_protected(addr, len)) {
     return -EACCES;
   }
@@ -1047,6 +1050,7 @@ static int prv_erase_boot_sectors(uint32_t addr, uint32_t size) {
 }
 
 static int prv_erase(const struct pbl_flash *flash, uint32_t addr, uint32_t size) {
+  perf_probe_count(PERF_FLASH_ERASE);
   if (flash_guard_is_protected(addr, size)) {
     return -EACCES;
   }

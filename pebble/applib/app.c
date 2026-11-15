@@ -3,6 +3,7 @@
 
 #include "app.h"
 
+#include <pbl/debug/perf_probe.h>
 #include <pbl/logging/logging.h>
 #include <pbl/mcu/fpu.h>
 #include <pbl/profiler/profiler.h>
@@ -21,6 +22,7 @@ PBL_PROFILER_NODE_DEFINE(render_app);
 static void prv_render_app(void) {
   WindowStack *stack = app_state_get_window_stack();
   GContext *ctx = app_state_get_graphics_context();
+  perf_probe_part_begin(PERF_PART_APP);
   if (!window_stack_is_animating(stack)) {
     PBL_PROFILER_NODE_START(render_app);
     window_render(app_window_stack_get_top_window(), ctx);
@@ -32,6 +34,7 @@ static void prv_render_app(void) {
       transition_context->implementation->render(transition_context, ctx);
     }
   }
+  perf_probe_part_end(PERF_PART_APP);
 
   *app_state_get_framebuffer_render_pending() = true;
 

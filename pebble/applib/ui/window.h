@@ -171,7 +171,7 @@ typedef struct Window {
   const char *debug_name;
 } Window;
 
-#ifdef CONFIG_RELEASE
+#if defined(CONFIG_RELEASE) && !defined(CONFIG_LEGACY_PERF_PROBE)
 #define WINDOW_NAME(x) ""
 #else
 #define WINDOW_NAME(x) x

@@ -105,6 +105,16 @@ config LEGACY_VOICE_ENCODER_IDLE_FREE
       dictation or app microphone session ends, instead of keeping it
       from the first session on.
 
+config LEGACY_PERF_PROBE
+    bool "Measurement build: UI and CPU counters in the log, scripted keys"
+    help
+      Log every few seconds, while frames are drawn, how many there were and
+      how long they took, the time from a key press to the next frame, the
+      share of the time the CPU ran or idled, the clock event interrupts
+      and the flash operations; and play a fixed key sequence when the log
+      dump endpoint is asked for generation 0xF0, so that builds can be
+      compared on the same input. Not for release images.
+
 config LEGACY_ASSERT_CALLER_LR
     bool "libc assert() records its caller"
     default y

@@ -21,6 +21,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <pbl/debug/perf_probe.h>
 #include <pbl/drivers/timer.h>
 #include <pbl/drivers/timer/stm32_rtc.h>
 #include <pbl/kernel/delay.h>
@@ -281,6 +282,7 @@ static void prv_set_next(const struct pbl_clockevent *ce, uint32_t delta) {
   }
 #endif
 
+  perf_probe_count(PERF_CE_REPROG);
   prv_wp_unlock();
   prv_wakeup_disable();
   // An event of the timer just stopped may already be pending as an interrupt: it must not
@@ -325,6 +327,7 @@ static void prv_set_next(const struct pbl_clockevent *ce, uint32_t delta) {
   const uint32_t sod = (uint32_t)(seconds % SECONDS_PER_DAY);
   const uint32_t ss = PREDIV_S - (uint32_t)(target % SUBSEC_HZ);
 
+  perf_probe_count(PERF_CE_REPROG);
   prv_wp_unlock();
   prv_alarm_disable();
   (void)prv_wait(RTC_ISR_ALRAWF);
@@ -340,6 +343,7 @@ static void prv_set_next(const struct pbl_clockevent *ce, uint32_t delta) {
 
   // The match may have gone by while the alarm was written.
   if (prv_calendar_count() >= target) {
+    perf_probe_count(PERF_CE_REPEND);
     pbl_irq_set_pending(PBL_IRQN(RTC_Alarm));
   }
 }
@@ -375,6 +379,7 @@ const struct pbl_clockevent *const pbl_system_clockevent = &s_rtc_ce;
 static void prv_alarm_isr(void) {
   const bool fired = (STM32_RTC->ISR & RTC_ISR_ALRAF) != 0U;
 
+  perf_probe_count(PERF_CE_IRQ);
   STM32_RTC->ISR = ~(RTC_ISR_ALRAF | RTC_ISR_INIT) & 0x0001FFFFU;
   EXTI->PR = EXTI_LINE_RTC_ALARM;
 
@@ -408,8 +413,10 @@ static void prv_isr(void) {
 
   // Not expired: the interrupt is left over from a timer that has been stopped or started
   // again since. The running timer must be left alone, or its event never comes.
+  perf_probe_count(PERF_CE_IRQ);
   if ((STM32_RTC->ISR & RTC_ISR_WUTF) == 0U) {
     s_stale_irqs++;
+    perf_probe_count(PERF_CE_STALE);
     return;
   }
 
@@ -474,6 +481,7 @@ void stm32_rtc_event_check(void) {
   if ((STM32_RTC->ISR & RTC_ISR_WUTF) != 0U) {
     pbl_irq_set_pending(PBL_IRQN(RTC_WKUP));
     s_repended++;
+    perf_probe_count(PERF_CE_REPEND);
     // Normal just before an event; report only every 1024th.
     if ((s_repended % 1024U) == 1U) {
       (void)pbl_sys_work_call_from_isr(prv_log_repended, nullptr);

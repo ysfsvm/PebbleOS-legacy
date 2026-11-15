@@ -10,6 +10,9 @@
 #include <pbl/pp/endpoint.h>
 #include <pbl/pp/send.h>
 #include <pbl/pp/session.h>
+#ifdef CONFIG_LEGACY_PERF_PROBE
+#include <pbl/debug/perf_probe.h>
+#endif
 
 #include <kernel/events.h>
 #include <kernel/pebble_tasks.h>
@@ -127,6 +130,21 @@ void dump_log_protocol_msg_callback(struct pbl_pp_session *session, const uint8_
 
     generation = data[1];
     cookie = *((uint32_t *)(data + 2));
+#ifdef CONFIG_LEGACY_PERF_PROBE
+    // Not a log generation: the request to play the measurement key sequence.
+    if (generation == 0xF0) {
+      perf_probe_script_start();
+      return;
+    }
+    if (generation == 0xF1) {
+      perf_probe_script_step();
+      return;
+    }
+    if (generation == 0xF2) {
+      perf_probe_bench_start();
+      return;
+    }
+#endif
   } else {
     if (length != 5) {
       PBL_LOG_ERR("Invalid dump log message received -- length %zu", length);

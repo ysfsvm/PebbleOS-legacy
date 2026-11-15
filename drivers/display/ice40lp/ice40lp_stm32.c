@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include <pbl/board.h>
+#include <pbl/debug/perf_probe.h>
 #include <pbl/drivers/display/ice40lp.h>
 #include <pbl/drivers/dma/stm32.h>
 #include <pbl/drivers/exti.h>
@@ -514,6 +515,7 @@ static void prv_busy_isr(void) {
   }
   s_waiting_busy = false;
   exti_disable(pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy));
+  perf_probe_part_end(PERF_PART_BUSY);
   prv_send_next_line();
 }
 
@@ -523,10 +525,12 @@ static void prv_dma_done(void *context, bool is_complete) {
   }
   if (s_sent >= DISP_LINES) {
     prv_end_frame();
+    perf_probe_frame_end();
     pbl_display_complete(s_disp, 0);
     return;
   }
   if (prv_busy()) {
+    perf_probe_part_begin(PERF_PART_BUSY);
     // Arm before looking again, so the falling edge cannot be missed.
     s_waiting_busy = true;
     exti_enable(pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy));
@@ -535,6 +539,7 @@ static void prv_dma_done(void *context, bool is_complete) {
     }
     s_waiting_busy = false;
     exti_disable(pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy));
+    perf_probe_part_end(PERF_PART_BUSY);
   }
   prv_send_next_line();
 }
@@ -543,6 +548,7 @@ static void prv_dma_done(void *context, bool is_complete) {
 static void prv_start_dma_frame(const uint8_t *fb) {
   const BoardConfigIce40Display *cfg = &BOARD_CONFIG_DISPLAY;
 
+  perf_probe_part_begin(PERF_PART_WAIT);
 #ifdef CONFIG_DISPLAY_ICE40LP_STM32_BUSY_EDGE
   if (!prv_wait_not_busy_edge()) {
 #else
@@ -553,6 +559,7 @@ static void prv_start_dma_frame(const uint8_t *fb) {
     PBL_LOG_WRN("Display busy before frame: configuring the FPGA again");
     s_programmed = prv_program_retry();
   }
+  perf_probe_part_end(PERF_PART_WAIT);
 
   s_fb = fb;
   s_sent = 0;
@@ -586,6 +593,7 @@ static void prv_frame_timeout(struct pbl_timer *timer) {
 
   if (ended) {
     PBL_LOG_WRN("Display frame timed out at line %d", s_sent);
+    perf_probe_frame_end();
     pbl_display_complete(s_disp, -ETIMEDOUT);
   }
 }
@@ -624,6 +632,7 @@ static int prv_update(const struct pbl_display *disp, const struct pbl_display_b
     return 0;
   }
 
+  perf_probe_frame_begin();
 #ifdef CONFIG_DISPLAY_ICE40LP_ROUND
   if (!s_offset_read) {
     s_offset = mfg_info_get_disp_offsets();

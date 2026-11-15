@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/debug/perf_probe.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/logging/logging.h>
 #include <pbl/profiler/profiler.h>
@@ -446,7 +447,9 @@ void compositor_app_render_ready(void) {
   if (s_state == CompositorState_App || s_state == CompositorState_AppAndModal) {
     // compositor_render_app also renders modals if the CompositorState_AppAndModal as that state
     // indicates that there are transparent modals that allow the app framebuffer to show through
+    perf_probe_part_begin(PERF_PART_COMPOSITOR);
     compositor_render_app();
+    perf_probe_part_end(PERF_PART_COMPOSITOR);
     s_flush_failed = false;
     prv_compositor_flush();
     // The flush dropped the mirror; an app frame copied one to one and sent restores it
@@ -455,7 +458,9 @@ void compositor_app_render_ready(void) {
 
   // Draw the modal if in the Modal state
   if (s_state == CompositorState_Modal) {
+    perf_probe_part_begin(PERF_PART_COMPOSITOR);
     compositor_render_modal();
+    perf_probe_part_end(PERF_PART_COMPOSITOR);
     prv_compositor_flush();
   }
 
@@ -483,7 +488,9 @@ void compositor_modal_render_ready(void) {
   }
 
   if (s_state == CompositorState_Modal) {
+    perf_probe_part_begin(PERF_PART_COMPOSITOR);
     compositor_render_modal();
+    perf_probe_part_end(PERF_PART_COMPOSITOR);
     prv_compositor_flush();
   } else if (s_state == CompositorState_AppAndModal) {
     prv_send_app_render_request();
@@ -505,6 +512,7 @@ void compositor_transition_render(CompositorTransitionUpdateFunc func, Animation
   static GDrawState prev_state;
   prev_state = ctx->draw_state;
 
+  perf_probe_part_begin(PERF_PART_COMPOSITOR);
   func(ctx, animation, distance_normalized);
 
   ctx->draw_state = prev_state;
@@ -512,6 +520,7 @@ void compositor_transition_render(CompositorTransitionUpdateFunc func, Animation
   if (!s_animation_state.impl->skip_modal_render_after_update) {
     compositor_render_modal();
   }
+  perf_probe_part_end(PERF_PART_COMPOSITOR);
 
   prv_compositor_flush();
 }
