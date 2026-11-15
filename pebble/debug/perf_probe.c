@@ -486,22 +486,32 @@ static void prv_log_screen(void) {
   }
 }
 
+// The keys are pressed from the high priority queue: the normal one starves while an animation
+// keeps the CPU busy, and the keys would come late. The end of the sequence (key line, profile)
+// goes back to the normal queue, where the flash log is written.
 static void prv_script(struct pbl_work *work);
 static PBL_DELAYED_WORK_DEFINE(s_script_work, prv_script);
+
+static void prv_script_done(struct pbl_work *work);
+static PBL_WORK_DEFINE(s_script_done_work, prv_script_done);
 
 static void prv_bench(struct pbl_work *work);
 static PBL_DELAYED_WORK_DEFINE(s_bench_work, prv_bench);
 static bool s_bench_running;
 
+static void prv_script_done(struct pbl_work *work) {
+  prv_log_key();
+  PBL_LOG_INFO("PERF script done");
+  prv_profile_stop();
+  s_script_running = false;
+  if (s_bench_running) {
+    (void)pbl_delayed_work_reschedule(&pbl_sys_workq, &s_bench_work, PBL_MSEC(100));
+  }
+}
+
 static void prv_script(struct pbl_work *work) {
   if (s_step >= ARRAY_LENGTH(s_script)) {
-    s_script_running = false;
-    prv_log_key();
-    PBL_LOG_INFO("PERF script done");
-    prv_profile_stop();
-    if (s_bench_running) {
-      (void)pbl_delayed_work_reschedule(&pbl_sys_workq, &s_bench_work, PBL_MSEC(100));
-    }
+    (void)pbl_work_submit(&pbl_sys_workq, &s_script_done_work);
     return;
   }
 
@@ -535,7 +545,7 @@ static void prv_script(struct pbl_work *work) {
     }
   }
 
-  (void)pbl_delayed_work_reschedule(&pbl_sys_workq, &s_script_work, PBL_MSEC(next_ms));
+  (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_script_work, PBL_MSEC(next_ms));
 }
 
 void perf_probe_script_step(void) {
@@ -550,7 +560,7 @@ void perf_probe_script_step(void) {
     s_pressed = false;
   }
   s_script_running = true;
-  (void)pbl_delayed_work_reschedule(&pbl_sys_workq, &s_script_work, PBL_MSEC(100));
+  (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_script_work, PBL_MSEC(100));
 }
 
 void perf_probe_script_start(void) {
@@ -567,7 +577,7 @@ void perf_probe_script_start(void) {
   s_key.active = false;
   PBL_LOG_INFO("PERF script start");
   prv_profile_start();
-  (void)pbl_delayed_work_reschedule(&pbl_sys_workq, &s_script_work, PBL_MSEC(500));
+  (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_script_work, PBL_MSEC(500));
 }
 
 // Measurement by the protocol
