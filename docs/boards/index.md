@@ -5,6 +5,8 @@
 | [`asterix`](asterix/index.md) | | | Pebble 2 Duo | Flint |
 | [`obelix`](obelix/index.md) | `bb2`, `dvt`, `pvt` | | Pebble Time 2 | Emery |
 | [`getafix`](getafix/index.md) | `dvt`, `dvt2` | | Pebble Round 2 | Gabbro |
+| [`snowy`](snowy/index.md) | `dvt`, `s3` | | Pebble Time, Pebble Time Steel | Basalt |
+| [`spalding`](snowy/index.md) | | | Pebble Time Round | Chalk |
 | `qemu_flint` | | | Emulated Pebble 2 Duo | Flint |
 | `qemu_emery` | | | Emulated Pebble Time 2 | Emery |
 | `qemu_gabbro` | | | Emulated Pebble Round 2 | Gabbro |
@@ -18,4 +20,5 @@
 asterix/index.md
 obelix/index.md
 getafix/index.md
+snowy/index.md
 ```
