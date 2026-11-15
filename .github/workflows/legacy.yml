@@ -128,7 +128,8 @@ jobs:
           | `normal_snowy_s3_*.pbz` | Pebble Time Steel | Builds; never run on a watch |
           | `normal_spalding_*.pbz` | Pebble Time Round | Builds; never run on a watch |
 
-          Each bundle carries the emoji pack. `SHA256SUMS_*.txt` lists the checksums.
+          The Pebble Time and Time Steel bundles carry the emoji pack; the Time Round bundle
+          does not. `SHA256SUMS_*.txt` lists the checksums.
           EOF
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" \
             --notes-file notes.md --prerelease artifacts/*
