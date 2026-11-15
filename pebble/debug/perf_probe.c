@@ -15,6 +15,7 @@
 #include <pbl/kernel/idle.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/syscall.h>
+#include <pbl/kernel/thread.h>
 #include <pbl/kernel/time.h>
 #include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
@@ -343,6 +344,52 @@ static void prv_profile_stop(void) {
 
 static uint32_t s_zoom_base[ZOOM_RANGES];
 static uint16_t s_zoom[ZOOM_RANGES][ZOOM_BUCKETS];
+//! Of the samples in a zoom range, every STK_EVERY-th keeps its PC and what look like the
+//! return addresses on the interrupted stack: who called.
+#define STK_DEPTH   4U
+#define STK_SAMPLES 96U
+#define STK_EVERY   6U
+#define STK_SCAN    96U
+
+static uint32_t s_stk[ZOOM_RANGES][STK_SAMPLES][1U + STK_DEPTH];
+static uint16_t s_stk_count[ZOOM_RANGES];
+static uint16_t s_stk_seen[ZOOM_RANGES];
+
+static bool prv_is_code(uint32_t v, uint32_t skip_base) {
+  return (v & 1U) != 0U && v >= PROFILE_BASE && v < PROFILE_BASE + (PROFILE_BUCKETS << PROFILE_SHIFT) &&
+         (v - skip_base) >= (ZOOM_BUCKETS << ZOOM_SHIFT);
+}
+
+static void prv_stack_sample(unsigned int z, const uint32_t *frame, bool fpu_frame) {
+  if ((s_stk_seen[z]++ % STK_EVERY) != 0U || s_stk_count[z] >= STK_SAMPLES) {
+    return;
+  }
+  const struct pbl_thread *t = pbl_thread_current();
+  const uintptr_t sp = (uintptr_t)frame;
+  uintptr_t top = 0U;
+  if (sp >= (uintptr_t)t->stack && sp < (uintptr_t)t->stack + t->stack_size) {
+    top = (uintptr_t)t->stack + t->stack_size;
+  } else if (t->syscall_stack != nullptr && sp >= (uintptr_t)t->syscall_stack &&
+             sp < (uintptr_t)t->syscall_stack + t->syscall_stack_size) {
+    top = (uintptr_t)t->syscall_stack + t->syscall_stack_size;
+  }
+  uint32_t *out = s_stk[z][s_stk_count[z]++];
+  unsigned int n = 0U;
+  out[0] = frame[6];
+  for (unsigned int i = 1U; i <= STK_DEPTH; i++) {
+    out[i] = 0U;
+  }
+  if (prv_is_code(frame[5], s_zoom_base[z])) {
+    out[1U + n++] = frame[5];
+  }
+  const uint32_t *p = frame + (fpu_frame ? 26U : 8U);
+  for (unsigned int i = 0U; i < STK_SCAN && (uintptr_t)(p + 1) <= top && n < STK_DEPTH; i++, p++) {
+    if (prv_is_code(*p, s_zoom_base[z])) {
+      out[1U + n++] = *p;
+    }
+  }
+}
+
 //! Samples over the whole sequence; the rest count only those while the application draws.
 static uint32_t s_profile_all;
 
@@ -372,8 +419,11 @@ PBL_IRQ_DIRECT(TIM7, 5, PBL_IRQ_ZERO_LATENCY) {
   const uint32_t pc = ((const uint32_t *)__get_PSP())[6];
   for (unsigned int z = 0U; z < ZOOM_RANGES; z++) {
     const uint32_t zb = (pc - s_zoom_base[z]) >> ZOOM_SHIFT;
-    if (zb < ZOOM_BUCKETS && s_zoom[z][zb] != UINT16_MAX) {
-      s_zoom[z][zb]++;
+    if (zb < ZOOM_BUCKETS) {
+      if (s_zoom[z][zb] != UINT16_MAX) {
+        s_zoom[z][zb]++;
+      }
+      prv_stack_sample(z, (const uint32_t *)__get_PSP(), (exc_return & 0x10U) == 0U);
     }
   }
   const uint32_t bucket = (pc - PROFILE_BASE) >> PROFILE_SHIFT;
@@ -398,6 +448,8 @@ static void prv_profile_start(void) {
     for (unsigned int i = 0U; i < ZOOM_BUCKETS; i++) {
       s_zoom[z][i] = 0U;
     }
+    s_stk_count[z] = 0U;
+    s_stk_seen[z] = 0U;
   }
   s_profile_all = 0U;
   s_profile_total = 0U;
@@ -433,6 +485,11 @@ static void prv_profile_stop(void) {
       const uint16_t *c = &s_zoom[z][i];
       PBL_LOG_INFO("PERF zoom %" PRIx32 ": %u %u %u %u", s_zoom_base[z] + (i << ZOOM_SHIFT), c[0],
                    c[1], c[2], c[3]);
+    }
+    for (unsigned int i = 0U; i < s_stk_count[z]; i++) {
+      const uint32_t *k = s_stk[z][i];
+      PBL_LOG_INFO("PERF stk %" PRIx32 " %" PRIx32 " %" PRIx32 " %" PRIx32 " %" PRIx32, k[0], k[1], k[2],
+                   k[3], k[4]);
     }
   }
 
