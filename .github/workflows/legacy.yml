@@ -1,0 +1,134 @@
+name: Legacy watches
+
+# Builds the release bundles of the boards this fork adds. A tag named
+# like v4.47.0-legacy.1 also publishes them as a GitHub release.
+
+on:
+  push:
+    branches: [main, 'dev/**']
+    tags: ['v*-legacy.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: legacy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    container:
+      image: ghcr.io/coredevices/pebbleos-docker:v13
+
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          - snowy@dvt
+          - snowy@s3
+          - spalding
+
+    steps:
+      - name: Mark Github workspace as safe
+        run: git config --system --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Rebase onto target branch
+        uses: ./.github/actions/rebase
+        with:
+          submodules: true
+
+      - name: Set artifact board name
+        id: artifact_board
+        run: echo "NAME=$(printf '%s' "$BOARD" | tr @ _)" >> "$GITHUB_OUTPUT"
+        env:
+          BOARD: ${{ matrix.board }}
+
+      - name: Restore the compiler cache
+        uses: ./.github/actions/ccache
+        with:
+          key: legacy-${{ steps.artifact_board.outputs.NAME }}
+
+      - name: Install Python dependencies
+        run: |
+          pip install -U pip
+          pip install -r requirements.txt
+
+      - name: Configure
+        run: pbl configure --board '${{ matrix.board }}' -DCONFIG_RELEASE=y
+
+      - name: Build
+        run: pbl build
+
+      - name: Save the compiler cache
+        uses: ./.github/actions/ccache-save
+        with:
+          key: legacy-${{ steps.artifact_board.outputs.NAME }}
+
+      - name: Bundle
+        run: pbl bundle
+
+      - name: Copy artifacts
+        env:
+          BOARD: ${{ steps.artifact_board.outputs.NAME }}
+        run: |
+          pbz=$(ls build/normal_${BOARD}_*.pbz)
+          version=$(basename "$pbz" | sed -E "s/^normal_${BOARD}_//; s/\.pbz$//")
+
+          mkdir artifacts
+          cp "$pbz" artifacts/
+          cp build/pebbleos.elf "artifacts/firmware_${BOARD}_${version}.elf"
+          cp build/log.dict.json "artifacts/firmware_${BOARD}_${version}_loghash_dict.json"
+          (cd artifacts && sha256sum -- * > "SHA256SUMS_${BOARD}.txt")
+          unzip -p "$pbz" manifest.json
+
+      - name: Store
+        uses: actions/upload-artifact@v7
+        with:
+          name: legacy-${{ steps.artifact_board.outputs.NAME }}
+          path: artifacts
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download the bundles
+        uses: actions/download-artifact@v8
+        with:
+          pattern: legacy-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > notes.md <<'EOF'
+          Unofficial builds of PebbleOS for the Pebble Time family. Use at your own risk; read the
+          README and the recovery notes it links before installing.
+
+          | Bundle | Runs on | State |
+          |---|---|---|
+          | `normal_snowy_dvt_*.pbz` | Pebble Time | Runs on one retail watch |
+          | `normal_snowy_s3_*.pbz` | Pebble Time Steel | Builds; never run on a watch |
+          | `normal_spalding_*.pbz` | Pebble Time Round | Builds; never run on a watch |
+
+          Each bundle carries the emoji pack. `SHA256SUMS_*.txt` lists the checksums.
+          EOF
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" \
+            --notes-file notes.md --prerelease artifacts/*
