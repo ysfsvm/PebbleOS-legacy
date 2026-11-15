@@ -53,8 +53,8 @@ that every bundle carries and the phone app installs after an update (see
 Bluetooth is LE only, through NimBLE: Bluetooth Classic and the original
 Pebble phone app are not supported.
 
-The Pebble 2 (`silk`) port is parked on the branch `dev/rebase-v4.46` and
-has not been carried to this base.
+The Pebble 2 (`silk`) port has not been carried to this base and is not
+published.
 
 ## Branches
 
@@ -62,10 +62,7 @@ has not been carried to this base.
 |---|---|
 | `main` | The port on the current Core release. |
 | `dev/<topic>` | Work in progress; rewritten freely. |
-| `dev/rebase-v4.46`, `silk/v4.46` | The last state on Core `v4.46.0`, with the Pebble 2. |
 | `probe/v4.47` | `main` plus the measurement build (`CONFIG_LEGACY_PERF_PROBE`): scripted key sequence, frame timing, sampling profiler. |
-
-Tags named `archive/<name>` keep earlier branches for reference.
 
 ## Building
 
