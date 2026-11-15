@@ -203,7 +203,7 @@ history (`tests/integration/harness/device/legacy_images.py`): a shallow
 clone cannot run it. QEMU needs the `pebble-snowy-bb` machine and a fourth
 serial port on USART1. The CC2564 driver expects a controller that answers
 TI's init script: the runs recorded below called the harness through
-pytest with a fake controller that is not in this tree.
+pytest with a controller stand-in that is not in this tree.
 
 ### Memory
 
@@ -211,7 +211,7 @@ Release build of `snowy@dvt` at the tip of the port:
 
 | Region | Used | Share |
 | --- | --- | --- |
-| Flash (firmware) | 933 371 B | 90.43 % |
+| Flash (firmware) | 934 891 B | 90.57 % |
 | Kernel SRAM | 76 032 B | 88.39 % |
 | CCM | 30 288 B | 46.22 % |
 | System resources | 519 017 of 524 288 B | 98.99 % |
@@ -225,48 +225,53 @@ SRAM: DMA cannot reach CCM. The emulator build uses 969 011 B of flash and
 
 ## Status
 
-The first column is the previous port (on Core v4.46.0) on a retail
-Pebble Time; the second is this branch, which has not run on a watch. The
-Time Steel and the Time Round have no recorded run on hardware.
-"Emulator" means the `system`, `ui` and `notifications` integration tests:
-14 passed with each clock event variant of the emulated SoC.
+Checked on one retail Pebble Time (`snowy@dvt`) with this tree on Core
+v4.47.0, November 2026. The Time Steel (`snowy@s3`) and the Time Round
+(`spalding`) build and have never run on a watch. "Emulator" means the
+`system`, `ui` and `notifications` integration tests: 14 passed with each
+clock event variant of the emulated SoC.
 
-| Feature | v4.46 port, on the watch | v4.47.0 branch |
+| Feature | On the watch | Emulator |
 | --- | --- | --- |
-| Display | Runs; frame timing measured | Emulator |
-| Buttons | Runs; key-to-frame timing measured | Emulator |
-| Backlight | Comes on indoors after the dark-threshold fix; PWM levels not checked one by one | Build only |
-| Vibe | Not checked one by one | Build only |
-| Accelerometer | No recorded check | Build only |
-| Compass | Calibrates and follows the heading | Build only |
-| Ambient light | Lux table measured on a Pebble Time | Build only |
-| Battery and charging | Battery reading fixed and checked; charge cycle and battery life not measured | Build only |
-| Microphone and dictation | Dictation works at room temperature | Build only; the DAI driver was rewritten |
-| Bluetooth LE | Pairs with a passkey, MTU 247, music with album art; restart fails with the wakeup timer | Build only |
-| Firmware update | Side-loaded over Bluetooth LE, installed by the stock bootloader | Emulator: v4.47 to v4.47, v4.46 to v4.47 and back |
-| Recovery | Firmware to stock recovery and back from a PC, three times | Not run |
-| Deep sleep (STOP) | Entered; sleep current not measured | Not run |
+| Display | Runs; frame timing measured | Yes |
+| Buttons | Run; key-to-frame timing measured | Yes |
+| Backlight | Runs, capped at 80 % of full scale; PWM levels not checked one by one | No |
+| Vibe | Runs; patterns not checked one by one | No |
+| Accelerometer | No recorded check | No |
+| Compass | Calibrates and follows the heading | No |
+| Ambient light | Lux table measured on a Pebble Time (v4.46 port) | No |
+| Battery and charging | Reading and charging work; charge cycle and battery life not measured | No |
+| Microphone and dictation | Dictation works at room temperature | No |
+| Bluetooth LE | Pairs with a passkey, reconnects, restarts after being switched off and on | With a controller stand-in |
+| Firmware update | Side-loaded over Bluetooth LE, installed by the stock bootloader | v4.47 to v4.47, v4.46 to v4.47 and back |
+| Recovery | Firmware to stock recovery and back from a PC, three times (v4.46 port) | No |
+| Deep sleep (STOP) | 94 to 96 % of an idle hour in STOP; current not measured | No |
+| Certification screen | Shows the stock regulatory IDs and the ratings from the FCC filing | No |
 
 ## Open issues
 
-- **Bluetooth restart and the wakeup timer.** With
+- **Wakeup timer as the clock event.** With
   `CONFIG_TIMER_STM32_RTC_WUT=y` the CC2564 often fails to start after
-  Bluetooth is switched off and on (reply bytes lost to UART overruns);
-  alarm A started it three times of three. The receive path is still one
-  byte per interrupt. Settings > Bluetooth can stay on "Enabling".
+  Bluetooth is switched off and on (reply bytes lost to UART overruns, one
+  byte per interrupt), and Settings > Bluetooth then stays on "Enabling".
+  The default, alarm A, has not shown this.
 - **Clock source reading back.** On the watch, a calendar read one step
-  behind the previous one made the kernel add 2^32 ticks (a 13 h jump).
-  The driver now never returns a smaller value and logs the raw registers
-  when it happens; why the read goes back is not known.
-- **UI frame time.** On the v4.46 port an app frame took 34.5 ms to draw
-  against a 33 ms target, plus 24.7 ms to send to the display. This tree's
-  build container brings an assembly `memcpy`/`memset` where the v4.46
-  builds had byte loops; the effect has not been measured on a watch.
+  behind the previous one made the kernel add 2^32 ticks (a jump of 48
+  days). The driver now never returns a smaller value and logs the raw
+  registers when it happens; why the read goes back is not known, and
+  there is no unit test for it.
+- **UI frame time.** An app frame takes about 34 ms to draw against a
+  33 ms target, plus about 24 ms to send to the display. Of the draw time,
+  about 8 % is the 64-bit divisions of `integer_sqrt` (round line caps)
+  and 8 to 15 % heap allocation in the launcher's glances; both are the
+  same code as on Core's boards.
 - **spalding.** Its round display path (`DISPLAY_ICE40LP_ROUND`: rows of
   the packed round framebuffer, shifted by the factory display offsets)
-  builds and links, but has never run, in this port or the v4.46 one.
-- **The devicetree is not validated against dtschema**; the root
-  compatible `pebble,snowy` may need its vendor prefix registered.
+  builds and links, but has never run.
+- **Board description.** Only the flash partitions are in the devicetree;
+  the devices are still described by the board's C tables. The tree is not
+  validated against dtschema, and the root compatible `pebble,snowy` may
+  need its vendor prefix registered.
 - **Board values.** Some `Kconfig.defconfig` defaults are firmware options
   that may belong in `snowy.conf`.
 
@@ -291,5 +296,7 @@ uses 939 979 B of flash (91.07 %), 70 400 B of kernel SRAM (81.85 %),
   License (`third_party/ti_bt_sp/LICENSE`): binary redistribution without
   modification, with TI devices only.
 - **iCE40 bitstreams** (`drivers/display/ice40lp/*_framebuffer.fpga`):
-  binaries embedded in the firmware; the tree records no licence or
-  provenance for them.
+  binaries embedded in the firmware, byte for byte the files
+  `platform/snowy/Snowy_LP1K_framebuffer.fpga` and
+  `platform/snowy/Spalding_UL1K_framebuffer.fpga` of the PebbleOS source
+  release this repository's history starts from.
