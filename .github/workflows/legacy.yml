@@ -89,7 +89,7 @@ jobs:
           cp build/pebbleos.elf "artifacts/firmware_${BOARD}_${version}.elf"
           cp build/log.dict.json "artifacts/firmware_${BOARD}_${version}_loghash_dict.json"
           (cd artifacts && sha256sum -- * > "SHA256SUMS_${BOARD}.txt")
-          unzip -p "$pbz" manifest.json
+          python3 -c 'import sys, zipfile; print(zipfile.ZipFile(sys.argv[1]).read("manifest.json").decode())' "$pbz"
 
       - name: Store
         uses: actions/upload-artifact@v7
