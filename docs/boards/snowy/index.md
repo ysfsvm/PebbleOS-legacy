@@ -277,10 +277,9 @@ includes `snowy/snowy.c`, `snowy.h` and `snowy.dtsi`, where
 `CONFIG_BOARD_SPALDING` picks the round framebuffer mask, the BMI160 and
 MAG3110 axes, a push-pull display rail and the spalding FPGA bitstream. Its
 `Kconfig.defconfig` sets the stock battery model (44 h, low power at 7 %,
-warnings at 34 % and 20 %) and `APP_GLANCE_ON_DEMAND`; its `ISR_STACK_CCM`
-default depends on `PULSE_EVERYWHERE`, which no Kconfig file defines. A
-release build uses 939 755 B of flash (91.04 %), 70 400 B of kernel SRAM
-(81.85 %), 37 456 B of CCM (57.15 %) and 522 697 B of resources (99.70 %).
+warnings at 34 % and 20 %) and `APP_GLANCE_ON_DEMAND`. A release build
+uses 939 755 B of flash (91.04 %), 70 400 B of kernel SRAM (81.85 %),
+37 456 B of CCM (57.15 %) and 522 697 B of resources (99.70 %).
 
 ## Licensing
 
