@@ -409,7 +409,7 @@ args:
 | `header` | Driver headers the `provides` templates need, e.g. for the modes of the parts a panel driver supports |
 | `ids` | How the abstract IDs of a binding map to the numbers of the driver; see below |
 | `pinctrl` | For pin controllers: how pins and their configuration become C |
-| `children` | For devices made of named children, such as the regulators of a PMIC |
+| `children` | For devices made of named children, such as the regulators of a PMIC: `names` gives each child's ID by node name, `node` the container node if any, and `has` a property only the children have, for a node that also holds other nodes, as the GPIO banks among the pin states of an STM32 pin controller |
 
 Several drivers may bind to one compatible, each with its own spec, class and
 instance file `<compatible>_<class>.inc`, as the clock and the reset drivers
