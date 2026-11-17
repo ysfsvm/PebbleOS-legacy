@@ -127,7 +127,7 @@ jobs:
           | Bundle | Runs on | State |
           |---|---|---|
           | `normal_snowy_dvt_*.pbz` | Pebble Time | Runs on one retail watch |
-          | `normal_snowy_s3_*.pbz` | Pebble Time Steel | Builds; never run on a watch |
+          | `normal_snowy_s3_*.pbz` | Pebble Time Steel | Runs on a user's watch; not tested here |
           | `normal_spalding_*.pbz` | Pebble Time Round | Builds; never run on a watch |
 
           The Pebble Time and Time Steel bundles carry the emoji pack; the Time Round bundle

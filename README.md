@@ -43,7 +43,7 @@ line.
 | Watch | Board | Status |
 |---|---|---|
 | Pebble Time | `snowy@dvt` | Runs on one retail watch: display, buttons, backlight, vibe, compass, microphone and dictation, charging, Bluetooth LE with passkey pairing, notifications, firmware updates, deep sleep. Battery life is not measured yet. |
-| Pebble Time Steel | `snowy@s3` | Builds. Never run on a watch. |
+| Pebble Time Steel | `snowy@s3` | Runs on a user's watch; not tested by this project. |
 | Pebble Time Round | `spalding` | Builds. Never run on a watch; its round display path has never executed. Do not install it on a watch you cannot afford to lose. |
 
 The board page, [`docs/boards/snowy`](docs/boards/snowy/index.md), has the
