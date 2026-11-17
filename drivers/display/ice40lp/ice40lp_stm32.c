@@ -25,7 +25,6 @@
 #include <pbl/board.h>
 #include <pbl/drivers/display/ice40lp.h>
 #include <pbl/drivers/dma/stm32.h>
-#include <pbl/drivers/exti.h>
 #include <pbl/drivers/gpio/stm32.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/kernel/delay.h>
@@ -99,7 +98,27 @@ static volatile int s_sent;
 static volatile bool s_frame_active;
 static volatile bool s_waiting_busy;
 
-static void prv_busy_isr(void);
+static void prv_busy_isr(void *arg);
+
+//! Falling edges of BUSY (the FPGA can take the next line) and of CDONE.
+static struct pbl_irq_spec s_busy_irq;
+static struct pbl_irq_spec s_cdone_irq;
+
+static int prv_request_irq(const struct pbl_gpio *gpio, pbl_intc_handler_t handler,
+                           struct pbl_irq_spec *irq) {
+  int ret;
+
+  ret = pbl_gpio_to_irq(gpio, PBL_IRQ_TYPE_EDGE_FALLING, irq);
+  if (ret != 0) {
+    return ret;
+  }
+  ret = pbl_device_init(&irq->intc->dev);
+  if (ret != 0) {
+    return ret;
+  }
+
+  return pbl_intc_request(irq, handler, nullptr);
+}
 
 static uint16_t prv_baud_prescaler(uint32_t hz) {
   RCC_ClocksTypeDef clocks;
@@ -180,20 +199,18 @@ static volatile bool s_waiting_frame;
 
 //! Like prv_wait_not_busy(), but a task sleeps until BUSY's falling edge instead of polling.
 static bool prv_wait_not_busy_edge(void) {
-  const ExtiConfig busy = pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy);
-
   if (prv_busy() && pbl_kernel_is_running() && !pbl_in_isr() && !pbl_irq_is_locked()) {
     (void)pbl_sem_take(&s_busy_fell, PBL_NO_WAIT);
     // STOP mode would delay the wake-up.
     soc_stm32_stop_block();
     s_waiting_frame = true;
-    exti_enable(busy);
+    (void)pbl_intc_enable(&s_busy_irq);
     // Arm before looking again, so the falling edge cannot be missed.
     if (prv_busy()) {
       (void)pbl_sem_take(&s_busy_fell, PBL_MSEC(BUSY_TIMEOUT_US / 1000));
     }
     s_waiting_frame = false;
-    exti_disable(busy);
+    (void)pbl_intc_disable(&s_busy_irq);
     soc_stm32_stop_release();
   }
   // The level decides: after a timeout or a glitch this polls as before.
@@ -294,7 +311,7 @@ static bool prv_configured(void) {
   return pbl_gpio_get(&BOARD_CONFIG_DISPLAY.cdone) > 0;
 }
 
-static void prv_cdone_isr(void) {
+static void prv_cdone_isr(void *arg) {
   s_config_lost = true;
 }
 
@@ -396,17 +413,22 @@ static int prv_init(const struct pbl_display *disp) {
   pbl_gpio_configure(&cfg->rail_6v6, PBL_GPIO_OUTPUT);
   pbl_gpio_configure(&cfg->rail_4v5, PBL_GPIO_OUTPUT);
 
-  exti_configure_pin(pbl_exti_stm32_config(&cfg->busy), ExtiTrigger_Falling, prv_busy_isr);
+  int ret = prv_request_irq(&cfg->busy, prv_busy_isr, &s_busy_irq);
+  if (ret != 0) {
+    return ret;
+  }
 
   prv_show_boot_splash();
   s_programmed = prv_program_retry();
   prv_power_enable();
 
   // As the stock firmware: a falling CDONE means the configuration was lost.
-  exti_configure_pin(pbl_exti_stm32_config(&cfg->cdone), ExtiTrigger_Falling, prv_cdone_isr);
-  exti_enable(pbl_exti_stm32_config(&cfg->cdone));
+  ret = prv_request_irq(&cfg->cdone, prv_cdone_isr, &s_cdone_irq);
+  if (ret != 0) {
+    return ret;
+  }
 
-  return 0;
+  return pbl_intc_enable(&s_cdone_irq);
 }
 
 #ifdef CONFIG_DISPLAY_ICE40LP_ROUND
@@ -472,7 +494,7 @@ static LINE_OPTIMIZE void prv_get_line(const uint8_t *fb, int index, uint8_t *li
 static void prv_end_frame(void) {
   const BoardConfigIce40Display *cfg = &BOARD_CONFIG_DISPLAY;
 
-  exti_disable(pbl_exti_stm32_config(&cfg->busy));
+  (void)pbl_intc_disable(&s_busy_irq);
   s_waiting_busy = false;
   // The last byte may still be shifting out.
   while (!(cfg->spi->SR & SPI_SR_TXE)) {
@@ -500,11 +522,11 @@ static void prv_send_next_line(void) {
   }
 }
 
-static void prv_busy_isr(void) {
+static void prv_busy_isr(void *arg) {
 #ifdef CONFIG_DISPLAY_ICE40LP_STM32_BUSY_EDGE
   if (s_waiting_frame) {
     s_waiting_frame = false;
-    exti_disable(pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy));
+    (void)pbl_intc_disable(&s_busy_irq);
     pbl_sem_give(&s_busy_fell);
     return;
   }
@@ -513,7 +535,7 @@ static void prv_busy_isr(void) {
     return;
   }
   s_waiting_busy = false;
-  exti_disable(pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy));
+  (void)pbl_intc_disable(&s_busy_irq);
   prv_send_next_line();
 }
 
@@ -529,12 +551,12 @@ static void prv_dma_done(void *context, bool is_complete) {
   if (prv_busy()) {
     // Arm before looking again, so the falling edge cannot be missed.
     s_waiting_busy = true;
-    exti_enable(pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy));
+    (void)pbl_intc_enable(&s_busy_irq);
     if (prv_busy()) {
       return;
     }
     s_waiting_busy = false;
-    exti_disable(pbl_exti_stm32_config(&BOARD_CONFIG_DISPLAY.busy));
+    (void)pbl_intc_disable(&s_busy_irq);
   }
   prv_send_next_line();
 }
