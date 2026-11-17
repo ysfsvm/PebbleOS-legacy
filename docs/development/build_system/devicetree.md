@@ -408,7 +408,7 @@ args:
 | `provides` | Templates of references to this driver's devices, when they differ from the class's |
 | `header` | Driver headers the `provides` templates need, e.g. for the modes of the parts a panel driver supports |
 | `ids` | How the abstract IDs of a binding map to the numbers of the driver; see below |
-| `pinctrl` | For pin controllers: how pins and their configuration become C |
+| `pinctrl` | For pin controllers: how pins and their configuration become C. `define` is the macro of a state; `pin` is formatted for each name of a group's `pins`, with `{pin}` the name and `{function}` the group's `function` in capitals, and `pinmux` for each cell of a group's `pinmux`, with `{value}` the cell, as on STM32; `flags` gives the C of each boolean property a group has, and `values` a template of each number property, with `{value}` its value |
 | `children` | For devices made of named children, such as the regulators of a PMIC: `names` gives each child's ID by node name, `node` the container node if any, and `has` a property only the children have, for a node that also holds other nodes, as the GPIO banks among the pin states of an STM32 pin controller |
 
 Several drivers may bind to one compatible, each with its own spec, class and
