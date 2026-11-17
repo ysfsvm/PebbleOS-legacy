@@ -7,8 +7,6 @@
 #include <errno.h>
 #include <stdint.h>
 
-#include <pbl/board.h>
-#include <pbl/drivers/exti.h>
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/imu/mag3110/mag3110.h>
 #include <pbl/drivers/mag.h>
@@ -46,10 +44,6 @@ static int prv_read(uint8_t reg, uint8_t len, uint8_t *data) {
 
 static int prv_write(uint8_t reg, uint8_t data) {
   return pbl_i2c_reg_write_byte(&s_dev->i2c, reg, data);
-}
-
-static ExtiConfig prv_exti(void) {
-  return pbl_exti_stm32_config(&s_dev->int_gpio);
 }
 
 //! Standby: not sampling and no interrupts. Takes up to 1/ODR (200 ms at
@@ -134,7 +128,7 @@ static void prv_sample_work(struct pbl_work *work) {
 // sample was never read, and the data-ready line stayed high with no further edge.
 static PBL_WORK_DEFINE(s_sample_work, prv_sample_work);
 
-static void prv_interrupt_handler(void) {
+static void prv_interrupt_handler(void *arg) {
   (void)pbl_work_submit(&pbl_sys_workq_high, &s_sample_work);
 }
 
@@ -152,10 +146,25 @@ static int prv_init(const struct pbl_mag *mag) {
   // with its data-ready line high, if the compass was in use.
   (void)prv_enter_standby_mode();
 
-  (void)pbl_gpio_configure(&s_dev->int_gpio, PBL_GPIO_INPUT);
-  exti_configure_pin(prv_exti(), ExtiTrigger_Rising, prv_interrupt_handler);
+  struct pbl_irq_spec *irq = &s_dev->state->irq;
+  int ret;
 
-  return 0;
+  ret = pbl_gpio_configure(&s_dev->int_gpio, PBL_GPIO_INPUT);
+  if (ret != 0) {
+    return ret;
+  }
+
+  ret = pbl_gpio_to_irq(&s_dev->int_gpio, PBL_IRQ_TYPE_EDGE_RISING, irq);
+  if (ret != 0) {
+    return ret;
+  }
+
+  ret = pbl_device_init(&irq->intc->dev);
+  if (ret != 0) {
+    return ret;
+  }
+
+  return pbl_intc_request(irq, prv_interrupt_handler, nullptr);
 }
 
 static int prv_set_rotated(const struct pbl_mag *mag, bool rotated) {
@@ -184,14 +193,17 @@ static int prv_set_sampling_interval(const struct pbl_mag *mag, uint32_t interva
     }
 
     if (rate_hz == 0U) {
-      exti_disable(prv_exti());
+      (void)pbl_intc_disable(&state->irq);
     } else {
       if (state->rate_hz == 0U) {
         ret = prv_write(CTRL_REG2, CTRL_REG2_AUTO_RESET_RAW);
         if (ret != 0) {
           return ret;
         }
-        exti_enable(prv_exti());
+        ret = pbl_intc_enable(&state->irq);
+        if (ret != 0) {
+          return ret;
+        }
       }
 
       ret = prv_write(CTRL_REG1, ((rate_hz == 20U) ? CTRL_REG1_ODR_20HZ : CTRL_REG1_ODR_5HZ) |

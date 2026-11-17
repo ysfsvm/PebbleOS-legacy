@@ -26,6 +26,7 @@
 
 /** @cond INTERNAL_HIDDEN */
 struct pbl_mag3110_state {
+  struct pbl_irq_spec irq;
   uint8_t rate_hz;
   bool rotated;
 };
