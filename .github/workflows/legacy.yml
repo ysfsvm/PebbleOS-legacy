@@ -119,7 +119,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           cat > notes.md <<'EOF'
-          Unofficial builds of PebbleOS for the Pebble Time family. Use at your own risk; read the
+          Unofficial builds of PebbleOS for the Pebble Time family only: Pebble Time, Time Steel
+          and Time Round. The original Pebble, the Pebble Steel and the Pebble 2 are not covered;
+          PebbleOS-legacy-watches is a separate port for them. Use at your own risk; read the
           README and the recovery notes it links before installing.
 
           | Bundle | Runs on | State |

@@ -5,11 +5,14 @@
   </picture>
 </p>
 
-# PebbleOS for the Pebble Time
+# PebbleOS for the Pebble Time family
 
 [Core Devices' PebbleOS](https://github.com/coredevices/PebbleOS) on the
-Pebble Time (`snowy`), a watch Pebble Technology made in 2015 and Core's
-firmware no longer supports. The port is a series of topic commits on top
+Pebble Time and Time Steel (`snowy`) and the Time Round (`spalding`),
+watches Pebble Technology made in 2015 and Core's firmware no longer
+supports. The original Pebble, the Pebble Steel and the Pebble 2 are not
+covered here; [PebbleOS-legacy-watches](https://github.com/bjsilvest/PebbleOS-legacy-watches)
+is a separate port that covers them. The port is a series of topic commits on top
 of a Core release tag (today `v4.47.0`), kept so that Core's own boards
 build to the same objects as without it.
 
