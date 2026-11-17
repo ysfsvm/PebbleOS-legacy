@@ -22,7 +22,7 @@ typedef struct {
 //! EXTI line of a pin on an STM32 port.
 static inline ExtiConfig pbl_exti_stm32_config(const struct pbl_gpio *gpio) {
   return (ExtiConfig){
-    .exti_port_source = container_of(gpio->port, const struct pbl_gpio_stm32, port)->index,
+    .exti_port_source = pbl_gpio_stm32_index(gpio->port),
     .exti_line = gpio->pin,
   };
 }

@@ -1,18 +1,22 @@
 /* SPDX-FileCopyrightText: 2026 Brian Silvestri */
+/* SPDX-FileCopyrightText: 2026 retake */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
 
 #include <stdint.h>
 
+#include <pbl/drivers/clk.h>
 #include <pbl/drivers/gpio.h>
-#include <pbl/soc/stm32/cmsis.h>
 #include <pbl/util/misc.h>
+
+#include <devicetree/devices.h>
 
 /**
  * @defgroup drivers_gpio_stm32 STM32 GPIO
  * @ingroup drivers_gpio
- * @brief @ref drivers_gpio ports of the STM32F4 SoCs.
+ * @brief @ref drivers_gpio ports of the STM32F4 SoCs, the gpio@ banks of the pin controller in
+ * the tree.
  * @{
  */
 
@@ -20,48 +24,44 @@
 struct pbl_gpio_stm32 {
   /** GPIO port. */
   struct pbl_gpio_port port;
-  /** Port registers. */
-  GPIO_TypeDef *regs;
-  /** Port index (A = 0), also its RCC AHB1ENR bit. */
+  /** Register base address. */
+  uintptr_t base;
+  /** Port clock. */
+  struct pbl_clk clk;
+  /** Port index (A = 0), also its EXTI port source. */
   uint8_t index;
 };
 
-/** @cond INTERNAL_HIDDEN */
-extern const struct pbl_gpio_stm32 pbl_gpio_stm32_a;
-extern const struct pbl_gpio_stm32 pbl_gpio_stm32_b;
-extern const struct pbl_gpio_stm32 pbl_gpio_stm32_c;
-extern const struct pbl_gpio_stm32 pbl_gpio_stm32_d;
-extern const struct pbl_gpio_stm32 pbl_gpio_stm32_e;
-extern const struct pbl_gpio_stm32 pbl_gpio_stm32_f;
-extern const struct pbl_gpio_stm32 pbl_gpio_stm32_g;
-extern const struct pbl_gpio_stm32 pbl_gpio_stm32_h;
-/** @endcond */
+#define STM32_GPIOA (&dt_gpioa)
+#define STM32_GPIOB (&dt_gpiob)
+#define STM32_GPIOC (&dt_gpioc)
+#define STM32_GPIOD (&dt_gpiod)
+#define STM32_GPIOE (&dt_gpioe)
+#define STM32_GPIOF (&dt_gpiof)
+#define STM32_GPIOG (&dt_gpiog)
+#define STM32_GPIOH (&dt_gpioh)
 
-#define STM32_GPIOA (&pbl_gpio_stm32_a.port)
-#define STM32_GPIOB (&pbl_gpio_stm32_b.port)
-#define STM32_GPIOC (&pbl_gpio_stm32_c.port)
-#define STM32_GPIOD (&pbl_gpio_stm32_d.port)
-#define STM32_GPIOE (&pbl_gpio_stm32_e.port)
-#define STM32_GPIOF (&pbl_gpio_stm32_f.port)
-#define STM32_GPIOG (&pbl_gpio_stm32_g.port)
-#define STM32_GPIOH (&pbl_gpio_stm32_h.port)
-
-/** @brief Registers of the port a pin is on. */
-static inline GPIO_TypeDef *pbl_gpio_stm32_regs(const struct pbl_gpio *gpio) {
-  return container_of(gpio->port, const struct pbl_gpio_stm32, port)->regs;
-}
+/**
+ * @brief Index of a port, A = 0, which is also its EXTI port source.
+ *
+ * Out of line: the compiler takes a port the tree defines for a bare struct pbl_gpio_port.
+ *
+ * @param port STM32 port.
+ */
+uint8_t pbl_gpio_stm32_index(const struct pbl_gpio_port *port);
 
 /**
  * @brief Hand a pin to a peripheral.
  *
+ * Initialises the pin's port first, so that it can run before the devices are, as for the early
+ * console.
+ *
  * @param gpio Pin on an STM32 port.
- * @param af Alternate function number (GPIO_AF_*).
- * @param flags @c PBL_GPIO_PULL_UP, @c PBL_GPIO_PULL_DOWN and/or
- *        @c PBL_GPIO_OPEN_DRAIN.
- * @param speed Output speed (GPIO_*_Speed).
+ * @param af Alternate function number, 0 to 15.
+ * @param flags @c PBL_GPIO_PULL_UP, @c PBL_GPIO_PULL_DOWN and/or @c PBL_GPIO_OPEN_DRAIN.
+ * @param speed Output speed, 0 (low) to 3 (very high).
  */
-void pbl_gpio_stm32_af(const struct pbl_gpio *gpio, uint8_t af, uint32_t flags,
-                       GPIOSpeed_TypeDef speed);
+void pbl_gpio_stm32_af(const struct pbl_gpio *gpio, uint8_t af, uint32_t flags, uint32_t speed);
 
 /**
  * @brief Put a pin in analog mode (lowest power, or for the ADC).
