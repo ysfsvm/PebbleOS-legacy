@@ -581,6 +581,36 @@ def test_unknown_child_fails(tmp_path):
         pmic_generate(tmp_path, dts=PMIC_DTS.replace("ldo1: LDO1", "ldo9: LDO9"))
 
 
+def test_children_without_the_property_are_not_children(tmp_path):
+    path, dtb = tmp_path / "c.dts", tmp_path / "c.dtb"
+    path.write_text(
+        CHILD_DTS.replace(
+            "status_led: multi-led {\n        };",
+            "status_led: multi-led {\n            led-controller;\n        };\n"
+            "        state {\n        };",
+        )
+    )
+    subprocess.run(
+        [dtc(), "-@", "-q", "-I", "dts", "-O", "dtb", "-o", str(dtb), str(path)],
+        check=True,
+    )
+    data = {
+        "compatible": "acme,leds",
+        "config": "LEDS",
+        "class": "bus",
+        "define": "LED_DEFINE",
+        "children": {"names": {"multi-led": 0}},
+        "args": [{"reg": 0, "up": True}],
+    }
+    with pytest.raises(DtError, match="not one of"):
+        dtmap.Generator(fdt.load(dtb), {"acme,leds": spec("acme,leds", data)}, {"LEDS"}).run()
+    data["children"]["has"] = "led-controller"
+    gen = dtmap.Generator(fdt.load(dtb), {"acme,leds": spec("acme,leds", data)}, {"LEDS"})
+    gen.run()
+    assert "LED_DEFINE(dt_status_led, 0x1000);" in body(gen)
+    assert "state" not in body(gen)
+
+
 BATTERY_CLASS = {
     "class": "battery",
     "type": "struct battery",
