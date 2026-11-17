@@ -55,7 +55,7 @@ SPEC_KEYS = {
 CHILDREN_KEYS = {"node", "names", "has"}
 CLASS_KEYS = {"class", "type", "include", "provides", "device", "roles"}
 ROLE_KEYS = {"symbol", "include"}
-PINCTRL_KEYS = {"define", "pin", "flags", "values"}
+PINCTRL_KEYS = {"define", "pin", "pinmux", "flags", "values"}
 IDS_KEYS = {"cell", "header", "prefix", "values"}
 IDS_VALUES_KEYS = {"header", "prefix"}
 ARG_KINDS = {
@@ -213,9 +213,9 @@ class Spec:
         if any(trailing[i] and not all(trailing[i:]) for i in range(len(trailing))):
             raise self._error("optional and list arguments must come last")
         if self.pinctrl is not None:
-            check_keys(
-                self._error, self.pinctrl, PINCTRL_KEYS, "pinctrl", ("define", "pin")
-            )
+            check_keys(self._error, self.pinctrl, PINCTRL_KEYS, "pinctrl", ("define",))
+            if not {"pin", "pinmux"} & self.pinctrl.keys():
+                raise self._error("'pinctrl' needs 'pin' or 'pinmux'")
             if len(self.classes) != 1:
                 raise self._error("'pinctrl' needs exactly one class")
         self.ids = {
@@ -868,14 +868,20 @@ class Generator:
         self.out.body.append(f"static const struct pbl_dma_chan {sym} = {init};")
         return f"&{sym}"
 
-    def _pin(self, pinctrl, pin, group):
+    def _pin(self, pinctrl, group, pin=None, cell=None):
+        """A pin of a group: a name of its 'pins' with its 'function', or a cell of its 'pinmux',
+        which holds both, as on STM32."""
         spec = pinctrl
         flags = spec.get("flags", {})
         values = spec.get("values", {})
-        unknown = set(group.props) - {"pins", "function", "phandle", *flags, *values}
+        own = {"pinmux"} if cell is not None else {"pins", "function"}
+        unknown = set(group.props) - {*own, "phandle", *flags, *values}
         if unknown:
             raise DtError(f"{group.path}: unsupported {sorted(unknown)}")
-        parts = [spec["pin"].format(pin=pin, function=group.string("function").upper())]
+        if cell is not None:
+            parts = [spec["pinmux"].format(value=cell)]
+        else:
+            parts = [spec["pin"].format(pin=pin, function=group.string("function").upper())]
         parts += [name for prop, name in flags.items() if group.has(prop)]
         parts += [
             name.format(value=group.u32(prop))
@@ -913,11 +919,23 @@ class Generator:
         self._define(sym, state)
         for label in state.labels[1:]:
             self._alias(f"dt_{label}", sym, state)
-        pins = [
-            self._pin(spec.pinctrl, pin, group)
-            for group in state.children
-            for pin in group.strings("pins")
-        ]
+        # The group property each template formats
+        props = {"pin": "pins", "pinmux": "pinmux"}
+        pins = []
+        for group in state.children:
+            kind = "pinmux" if group.has("pinmux") else "pin"
+            if not group.has(props[kind]):
+                wanted = " or ".join(f"'{props[k]}'" for k in props if k in spec.pinctrl)
+                raise DtError(f"{group.path}: no {wanted}")
+            if kind not in spec.pinctrl:
+                raise DtError(f"{group.path}: {spec.compatibles[0]} takes no '{props[kind]}'")
+            if kind == "pinmux":
+                cells = group.u32s("pinmux")
+                if not cells:
+                    raise DtError(f"{group.path}: empty 'pinmux'")
+                pins += [self._pin(spec.pinctrl, group, cell=c) for c in cells]
+            else:
+                pins += [self._pin(spec.pinctrl, group, pin=p) for p in group.strings("pins")]
         out = self.outputs[instance_file(spec)]
         out.includes.add("devicetree/devices.h")
         out.body.append(f"{spec.pinctrl['define']}({', '.join([sym, *pins])});")

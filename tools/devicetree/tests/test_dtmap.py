@@ -229,6 +229,93 @@ def test_pin_states_go_to_the_pin_controller(tmp_path):
     assert "extern const struct pin_state dt_bus_default;" in gen.header()
 
 
+PINMUX_SPEC = {
+    **SPECS["acme,pinctrl"],
+    "pinctrl": {
+        "define": "PIN_STATE",
+        "pinmux": "PINMUX({value:#x})",
+        "flags": {"bias-pull-up": "PULL_UP"},
+        "values": {"slew-rate": "SLEW_{value}"},
+    },
+}
+PINMUX_GROUP = """            scl {
+                pinmux = <0x10a 0x10b>;
+                bias-pull-up;
+                slew-rate = <2>;
+            };
+"""
+
+
+def test_pinmux_cells_are_pins(tmp_path):
+    group = DTS[DTS.index("            scl {") : DTS.index("        unused_default")]
+    group = group[: group.index("};") + 3]
+    dts = DTS.replace(group, PINMUX_GROUP, 1)
+    gen = generate(tmp_path, specs={"acme,pinctrl": spec("acme,pinctrl", PINMUX_SPEC)}, dts=dts)
+    assert (
+        "PIN_STATE(dt_bus_default, PINMUX(0x10a) | PULL_UP | SLEW_2, "
+        "PINMUX(0x10b) | PULL_UP | SLEW_2);" in body(gen)
+    )
+
+
+def test_pinmux_needs_a_spec_that_takes_it(tmp_path):
+    dts = DTS.replace('pins = "PA1";\n                function = "scl";', "pinmux = <0x10a>;")
+    with pytest.raises(DtError, match="takes no 'pinmux'"):
+        generate(tmp_path, dts=dts)
+
+
+SCL_PINS = 'pins = "PA1";\n                function = "scl";'
+BOTH_SPEC = {
+    **SPECS["acme,pinctrl"],
+    "pinctrl": {**SPECS["acme,pinctrl"]["pinctrl"], "pinmux": "PINMUX({value:#x})"},
+}
+
+
+def test_pins_need_a_spec_that_takes_them(tmp_path):
+    specs = {"acme,pinctrl": spec("acme,pinctrl", PINMUX_SPEC)}
+    with pytest.raises(DtError, match="takes no 'pins'"):
+        generate(tmp_path, specs=specs)
+
+
+def test_a_group_without_pins_names_what_is_missing(tmp_path):
+    dts = DTS.replace(SCL_PINS, "", 1)
+    with pytest.raises(DtError, match="scl: no 'pins'$"):
+        generate(tmp_path, dts=dts)
+    specs = {"acme,pinctrl": spec("acme,pinctrl", PINMUX_SPEC)}
+    with pytest.raises(DtError, match="scl: no 'pinmux'$"):
+        generate(tmp_path, specs=specs, dts=dts)
+    specs = {"acme,pinctrl": spec("acme,pinctrl", BOTH_SPEC)}
+    with pytest.raises(DtError, match="scl: no 'pins' or 'pinmux'$"):
+        generate(tmp_path, specs=specs, dts=dts)
+
+
+def test_a_spec_with_both_templates_takes_both_groups(tmp_path):
+    sda = "            sda {\n                pinmux = <0x10b>;\n            };\n"
+    end = "        };\n        unused_default"
+    dts = DTS.replace(end, sda + end, 1)
+    gen = generate(tmp_path, specs={"acme,pinctrl": spec("acme,pinctrl", BOTH_SPEC)}, dts=dts)
+    assert "PIN_STATE(dt_bus_default, PA1_SCL | INPUT | DRIVE_8, PINMUX(0x10b));" in body(gen)
+
+
+def test_a_pinmux_group_takes_no_function(tmp_path):
+    dts = DTS.replace(SCL_PINS, 'pinmux = <0x10a>;\n                function = "scl";', 1)
+    specs = {"acme,pinctrl": spec("acme,pinctrl", PINMUX_SPEC)}
+    with pytest.raises(DtError, match=r"unsupported \['drive-strength', 'function', 'input-en"):
+        generate(tmp_path, specs=specs, dts=dts)
+
+
+def test_an_empty_pinmux_fails(tmp_path):
+    dts = DTS.replace(SCL_PINS, "pinmux;", 1)
+    specs = {"acme,pinctrl": spec("acme,pinctrl", PINMUX_SPEC)}
+    with pytest.raises(DtError, match="empty 'pinmux'"):
+        generate(tmp_path, specs=specs, dts=dts)
+
+
+def test_pinctrl_needs_pin_or_pinmux():
+    data = {**SPECS["acme,pinctrl"], "pinctrl": {"define": "PIN_STATE"}}
+    with pytest.raises(DtError, match="needs 'pin' or 'pinmux'"):
+        spec("acme,pinctrl", data)
+
+
 def test_unused_pin_states_are_left_out(tmp_path):
     gen = generate(tmp_path)
     assert "PA2" not in body(gen)
