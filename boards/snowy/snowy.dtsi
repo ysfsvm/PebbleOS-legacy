@@ -1,13 +1,11 @@
 // SPDX-FileCopyrightText: 2026 retake
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 
-// What the Pebble Time and Time Round share in the tree: only the NOR flash
-// and its partitions so far. The other devices are defined in C (snowy.c).
+// Shared by the Pebble Time and Time Round
+
+#include "st/stm32f439.dtsi"
 
 / {
-	#address-cells = <1>;
-	#size-cells = <1>;
-
 	// 16 MiB Spansion S29VS on the FMC, bank 1. The first 128 KiB has 32 KiB
 	// bottom boot sectors, the rest 128 KiB sectors.
 	flash0: flash@60000000 {

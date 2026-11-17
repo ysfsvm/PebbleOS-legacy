@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/arm/pebble.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Pebble Technology watches on STM32F4
+
+maintainers:
+  - retake <ysfss@protonmail.com>
+
+properties:
+  $nodename:
+    const: "/"
+  compatible:
+    oneOf:
+      - description: Pebble Time and Time Steel (snowy)
+        items:
+          - const: pebble,snowy
+          - const: st,stm32f439
+      - description: Pebble Time Round (spalding)
+        items:
+          - const: pebble,spalding
+          - const: st,stm32f439
+
+additionalProperties: true
