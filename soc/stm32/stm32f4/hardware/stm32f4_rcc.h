@@ -1,0 +1,32 @@
+/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#pragma once
+
+#include <pbl/util/bits.h>
+
+/* Register offsets */
+
+#define STM32F4_RCC_CR_OFFSET      0x00
+#define STM32F4_RCC_PLLCFGR_OFFSET 0x04
+#define STM32F4_RCC_CFGR_OFFSET    0x08
+/* AHB1ENR, AHB2ENR, AHB3ENR, a gap, APB1ENR and APB2ENR, one word each */
+#define STM32F4_RCC_ENR_OFFSET(n) (0x30 + 4 * (n))
+
+/* Register bit definitions */
+
+#define STM32F4_RCC_PLLCFGR_PLLM_MASK  PBL_GENMASK(5, 0)
+#define STM32F4_RCC_PLLCFGR_PLLN_MASK  PBL_GENMASK(14, 6)
+#define STM32F4_RCC_PLLCFGR_PLLP_MASK  PBL_GENMASK(17, 16)
+#define STM32F4_RCC_PLLCFGR_PLLSRC_HSE PBL_BIT(22)
+
+#define STM32F4_RCC_CFGR_SWS_MASK   PBL_GENMASK(3, 2)
+#define STM32F4_RCC_CFGR_SWS_HSI    0U
+#define STM32F4_RCC_CFGR_SWS_HSE    1U
+#define STM32F4_RCC_CFGR_SWS_PLL    2U
+#define STM32F4_RCC_CFGR_HPRE_MASK  PBL_GENMASK(7, 4)
+#define STM32F4_RCC_CFGR_PPRE1_MASK PBL_GENMASK(12, 10)
+#define STM32F4_RCC_CFGR_PPRE2_MASK PBL_GENMASK(15, 13)
+
+/* The internal RC oscillator */
+#define STM32F4_HSI_HZ 16000000U
