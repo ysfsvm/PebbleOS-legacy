@@ -5,7 +5,7 @@
 
 #include <stdbool.h>
 
-#include <pbl/drivers/exti.h>
+#include <pbl/drivers/intc.h>
 
 /**
  * @defgroup drivers_bluetooth_cc2564 CC2564
@@ -49,7 +49,7 @@ bool cc2564_take_sleep_ind(void);
 void cc2564_hold_rts(bool hold);
 
 /** @brief Call @p cb on the controller's wake pulse on our CTS. */
-void cc2564_cts_wake_enable(ExtiHandlerCallback cb);
+void cc2564_cts_wake_enable(pbl_intc_handler_t cb);
 
 /**
  * @brief Send a one-byte eHCILL message, even if the sleeping controller
