@@ -26,7 +26,8 @@ line.
 > here only to say which watches these builds run on.
 >
 > **Use at your own risk.** No warranty (Apache 2.0, sections 7-8). A
-> Pebble Time is sealed: there is no debug port to rescue it with. The
+> Pebble Time is sealed: its debug pads are inside the case, out of reach
+> without opening the watch. The
 > builds replace only the normal firmware, never the stock bootloader, the
 > stock recovery firmware or the factory data, so recovery mode stays
 > available; getting a firmware back from recovery mode needs a PC with
