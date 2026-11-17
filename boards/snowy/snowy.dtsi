@@ -6,7 +6,43 @@
 
 #include "st/stm32f439.dtsi"
 
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
 / {
+	// Active low. Back has an external pull-up, the others take the pin's.
+	buttons: gpio-keys {
+		compatible = "gpio-keys";
+
+		button-back {
+			label = "Back";
+			gpios = <&gpiog 4 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_BACK>;
+			debounce-interval = <40>;
+		};
+
+		button-up {
+			label = "Up";
+			gpios = <&gpiog 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			linux,code = <KEY_UP>;
+			debounce-interval = <40>;
+		};
+
+		button-select {
+			label = "Select";
+			gpios = <&gpiog 1 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			linux,code = <KEY_SELECT>;
+			debounce-interval = <40>;
+		};
+
+		button-down {
+			label = "Down";
+			gpios = <&gpiog 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			linux,code = <KEY_DOWN>;
+			debounce-interval = <40>;
+		};
+	};
+
 	// 16 MiB Spansion S29VS on the FMC, bank 1. The first 128 KiB has 32 KiB
 	// bottom boot sectors, the rest 128 KiB sectors.
 	flash0: flash@60000000 {

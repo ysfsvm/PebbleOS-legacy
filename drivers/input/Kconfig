@@ -11,14 +11,6 @@ config INPUT_GPIO_KEYS
     help
       Keys on GPIOs with interrupts, debounced in software.
 
-config INPUT_STM32_KEYS
-    bool "STM32 keys"
-    depends on INPUT && EXTI
-    select HAL_STM32
-    help
-      Keys on STM32F4 GPIOs, debounced by sampling them with TIM4 as the
-      stock firmware does.
-
 config INPUT_SDL
     bool "SDL keyboard"
     default y if SOC_POSIX
