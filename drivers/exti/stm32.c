@@ -1,115 +1,56 @@
 /* SPDX-FileCopyrightText: 2026 Brian Silvestri */
+/* SPDX-FileCopyrightText: 2026 retake */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-//! STM32F4 EXTI for GPIO pins: line N serves pin N of the port routed to it
-//! through SYSCFG.
+//! The stock firmware's EXTI calls on top of the interrupt controllers of the GPIO ports, for the
+//! drivers that still use them.
 
 #include <pbl/drivers/exti.h>
+#include <pbl/drivers/gpio/stm32.h>
+#include <pbl/drivers/intc.h>
 #include <pbl/kernel/assert.h>
-#include <pbl/kernel/fatal.h>
-#include <pbl/kernel/irq.h>
-#include <pbl/soc/stm32/clock.h>
-#include <pbl/soc/stm32/cmsis.h>
+#include <pbl/util/size.h>
 
-#define NUM_GPIO_LINES 16
+#include <devicetree/devices.h>
 
-#define EXTI_IRQ_PRIO 14
+// By port index, A = 0
+static const struct pbl_intc *const s_intcs[] = {
+  &dt_gpioa_intc, &dt_gpiob_intc, &dt_gpioc_intc, &dt_gpiod_intc,
+  &dt_gpioe_intc, &dt_gpiof_intc, &dt_gpiog_intc, &dt_gpioh_intc,
+};
 
-static ExtiHandlerCallback s_callbacks[NUM_GPIO_LINES];
-
-static pbl_irq_t prv_irqn(uint8_t line) {
-  if (line <= 4) {
-    return PBL_IRQN(EXTI0) + line;
-  }
-  if (line <= 9) {
-    return PBL_IRQN(EXTI9_5);
-  }
-  return PBL_IRQN(EXTI15_10);
+static void prv_call(void *arg) {
+  ((ExtiHandlerCallback)arg)();
 }
 
-static void prv_dispatch(uint8_t first, uint8_t last) {
-  for (uint8_t line = first; line <= last; line++) {
-    const uint32_t mask = 1U << line;
-    if (EXTI->PR & mask) {
-      EXTI->PR = mask;
-      if (s_callbacks[line]) {
-        s_callbacks[line]();
-      }
-    }
-  }
-}
+static struct pbl_irq_spec prv_spec(ExtiConfig cfg, uint8_t type) {
+  PBL_ASSERTN(cfg.exti_port_source < ARRAY_LENGTH(s_intcs));
 
-static void prv_exti0(void) {
-  prv_dispatch(0, 0);
+  return (struct pbl_irq_spec)PBL_IRQ_SPEC(s_intcs[cfg.exti_port_source], cfg.exti_line, type);
 }
-static void prv_exti1(void) {
-  prv_dispatch(1, 1);
-}
-static void prv_exti2(void) {
-  prv_dispatch(2, 2);
-}
-static void prv_exti3(void) {
-  prv_dispatch(3, 3);
-}
-static void prv_exti4(void) {
-  prv_dispatch(4, 4);
-}
-static void prv_exti9_5(void) {
-  prv_dispatch(5, 9);
-}
-static void prv_exti15_10(void) {
-  prv_dispatch(10, 15);
-}
-
-PBL_IRQ_CONNECT(EXTI0, EXTI_IRQ_PRIO, prv_exti0, , 0);
-PBL_IRQ_CONNECT(EXTI1, EXTI_IRQ_PRIO, prv_exti1, , 0);
-PBL_IRQ_CONNECT(EXTI2, EXTI_IRQ_PRIO, prv_exti2, , 0);
-PBL_IRQ_CONNECT(EXTI3, EXTI_IRQ_PRIO, prv_exti3, , 0);
-PBL_IRQ_CONNECT(EXTI4, EXTI_IRQ_PRIO, prv_exti4, , 0);
-PBL_IRQ_CONNECT(EXTI9_5, EXTI_IRQ_PRIO, prv_exti9_5, , 0);
-PBL_IRQ_CONNECT(EXTI15_10, EXTI_IRQ_PRIO, prv_exti15_10, , 0);
 
 void exti_configure_pin(ExtiConfig cfg, ExtiTrigger trigger, ExtiHandlerCallback cb) {
-  PBL_ASSERTN(cfg.exti_line < NUM_GPIO_LINES);
+  static const uint8_t s_types[] = {
+    [ExtiTrigger_Rising] = PBL_IRQ_TYPE_EDGE_RISING,
+    [ExtiTrigger_Falling] = PBL_IRQ_TYPE_EDGE_FALLING,
+    [ExtiTrigger_RisingFalling] = PBL_IRQ_TYPE_EDGE_BOTH,
+  };
+  const struct pbl_irq_spec spec = prv_spec(cfg, s_types[trigger]);
 
-  const uint32_t mask = 1U << cfg.exti_line;
-
-  soc_stm32_clock_set(SOC_STM32_APB2, RCC_APB2ENR_SYSCFGEN, true);
-  s_callbacks[cfg.exti_line] = cb;
-
-  // The port select, trigger and mask registers are shared by several lines and also changed
-  // from interrupts.
-  pbl_irq_lock();
-  SYSCFG_EXTILineConfig(cfg.exti_port_source, cfg.exti_line);
-  if (trigger == ExtiTrigger_Rising || trigger == ExtiTrigger_RisingFalling) {
-    EXTI->RTSR |= mask;
-  } else {
-    EXTI->RTSR &= ~mask;
-  }
-  if (trigger == ExtiTrigger_Falling || trigger == ExtiTrigger_RisingFalling) {
-    EXTI->FTSR |= mask;
-  } else {
-    EXTI->FTSR &= ~mask;
-  }
-  pbl_irq_unlock();
+  PBL_ASSERTN(pbl_device_init(&spec.intc->dev) == 0);
+  // Configuring a pin again replaces its handler
+  (void)pbl_intc_free(&spec);
+  PBL_ASSERTN(pbl_intc_request(&spec, prv_call, cb) == 0);
 }
 
 void exti_enable(ExtiConfig config) {
-  const uint32_t mask = 1U << config.exti_line;
+  const struct pbl_irq_spec spec = prv_spec(config, PBL_IRQ_TYPE_EDGE_RISING);
 
-  EXTI->PR = mask;
-  pbl_irq_lock();
-  EXTI->IMR |= mask;
-  pbl_irq_unlock();
-  pbl_irq_enable(prv_irqn(config.exti_line));
+  (void)pbl_intc_enable(&spec);
 }
 
 void exti_disable(ExtiConfig config) {
-  pbl_irq_lock();
-  EXTI->IMR &= ~(1U << config.exti_line);
-  pbl_irq_unlock();
-  // Shared vectors stay enabled; their lines are masked individually.
-  if (config.exti_line <= 4) {
-    pbl_irq_disable(prv_irqn(config.exti_line));
-  }
+  const struct pbl_irq_spec spec = prv_spec(config, PBL_IRQ_TYPE_EDGE_RISING);
+
+  (void)pbl_intc_disable(&spec);
 }

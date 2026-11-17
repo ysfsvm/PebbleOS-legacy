@@ -11,9 +11,10 @@ if EXTI
 config EXTI_STM32
     bool "ST STM32"
     default y if SOC_STM32F4
-    select HAL_STM32
+    depends on GPIO_STM32
     help
-      Support for the STM32F4 external interrupt controller.
+      The stock firmware's EXTI calls, on the interrupt controllers of the
+      STM32F4 GPIO ports.
 
 module = DRIVER_EXTI
 module-str = External Interrupt
