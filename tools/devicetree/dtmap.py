@@ -52,7 +52,7 @@ SPEC_KEYS = {
     "children",
     "header",
 }
-CHILDREN_KEYS = {"node", "names"}
+CHILDREN_KEYS = {"node", "names", "has"}
 CLASS_KEYS = {"class", "type", "include", "provides", "device", "roles"}
 ROLE_KEYS = {"symbol", "include"}
 PINCTRL_KEYS = {"define", "pin", "flags", "values"}
@@ -122,6 +122,12 @@ def c_value(value):
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
+
+
+def child_matches(node, children):
+    """Whether a child is one a spec's 'children' instantiates: with 'has', only the children
+    with that property are, as the GPIO banks among the pin states of an STM32 pin controller."""
+    return "has" not in children or node.has(children["has"])
 
 
 def check_keys(error, data, known, what, required=()):
@@ -484,8 +490,10 @@ class Generator:
                 continue
             for spec in self._device(owner).specs:
                 children = spec.children or {}
-                if children.get("node") == container and name in children.get(
-                    "names", {}
+                if (
+                    children.get("node") == container
+                    and name in children.get("names", {})
+                    and child_matches(node, children)
                 ):
                     return Device(
                         node,
@@ -589,7 +597,7 @@ class Generator:
                 return
         names = spec.children["names"]
         for child in container.children:
-            if not enabled(child):
+            if not enabled(child) or not child_matches(child, spec.children):
                 continue
             name = child.name.split("@")[0]
             if name not in names:
