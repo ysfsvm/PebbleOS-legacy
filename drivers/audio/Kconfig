@@ -83,6 +83,7 @@ config AUDIO_STM32_I2S_PDM
     bool "STM32 I2S PDM"
     default y if MIC
     depends on HAL_STM32_STM32F439
+    select DMA
     help
       Capture from a PDM microphone through an STM32F4 SPI in I2S mode,
       decimated by the OpenPDMFilter (snowy).

@@ -10,7 +10,7 @@
 #include <pbl/board/partitions.h>
 #include <pbl/drivers/audio/stm32.h>
 #include <pbl/drivers/backlight/pwm.h>
-#include <pbl/drivers/dma/stm32.h>
+#include <pbl/drivers/dma/stm32f4.h>
 #include <pbl/drivers/i2c/stm32.h>
 #include <pbl/drivers/pmic/max14690.h>
 #include <pbl/drivers/pwm/stm32.h>
@@ -206,19 +206,10 @@ PBL_BMI160_DEFINE(snowy_accel);
 ///////////////////////////////////////////////////////////////////////////////
 
 // SPI2_RX: DMA1 stream 3, channel 0
-static struct pbl_dma_stm32_state s_mic_dma_state;
-static const struct pbl_dma_stm32_stream MIC_DMA = {
-  .state = &s_mic_dma_state,
-  .stream = DMA1_Stream3,
-  .channel = DMA_Channel_0,
-  .rcc = RCC_AHB1Periph_DMA1,
-  .it_ht = DMA_IT_HTIF3,
-  .it_tc = DMA_IT_TCIF3,
-  .irqn = PBL_IRQN(DMA1_Stream3),
-};
-PBL_IRQ_CONNECT(DMA1_Stream3, 15, pbl_dma_stm32_irq_handler, &MIC_DMA, 0);
+static const struct pbl_dma_chan s_mic_dma =
+    PBL_DMA_CHAN(&dt_dma1, 3, 0, PBL_DMA_STM32F4_PRIORITY(PBL_DMA_STM32F4_PRIORITY_HIGH));
 
-PBL_AUDIO_STM32_I2S_PDM_DEFINE(snowy_mic_dai, "i2s2", SPI2, RCC_APB1Periph_SPI2, &MIC_DMA,
+PBL_AUDIO_STM32_I2S_PDM_DEFINE(snowy_mic_dai, "i2s2", SPI2, RCC_APB1Periph_SPI2, &s_mic_dma,
                                PBL_GPIO(STM32_GPIOB, 10, 0), PBL_GPIO(STM32_GPIOB, 15, 0),
                                GPIO_AF_SPI2, 250);
 PBL_AUDIO_CARD_DEFINE(snowy_mic, "mic", &snowy_mic_dai, nullptr, nullptr, 0, 0);
