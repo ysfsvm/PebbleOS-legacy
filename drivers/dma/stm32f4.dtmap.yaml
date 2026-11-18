@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 retake
+# SPDX-License-Identifier: Apache-2.0
+
+compatible: st,stm32-dma
+config: DMA_STM32F4
+class: dma
+define: PBL_DMA_STM32F4_DEFINE
+args:
+  - name: true
+  - reg: 0
+  - clock: 0
+  - irq: 0
+  - irq: 1
+  - irq: 2
+  - irq: 3
+  - irq: 4
+  - irq: 5
+  - irq: 6
+  - irq: 7
