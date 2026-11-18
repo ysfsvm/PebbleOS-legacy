@@ -12,14 +12,12 @@
 #include <pbl/drivers/display/ice40lp.h>
 #include <pbl/drivers/imu/bmi160/bmi160.h>
 #include <pbl/drivers/imu/mag3110/mag3110.h>
-#include <pbl/drivers/uart/stm32.h>
+#include <pbl/drivers/uart.h>
 #include <pbl/drivers/vibe/pwm.h>
 
-extern const struct pbl_uart_stm32 snowy_console_uart;
-
 #ifdef CONFIG_QEMU_SERIAL
-extern const struct pbl_uart_stm32 snowy_qemu_uart;
-#define SNOWY_QEMU_UART (&snowy_qemu_uart.uart)
+extern const struct pbl_uart snowy_qemu_uart;
+#define SNOWY_QEMU_UART (&snowy_qemu_uart)
 #else
 // The emulator's port exists in emulator builds only.
 #define SNOWY_QEMU_UART nullptr
@@ -28,7 +26,7 @@ extern const struct pbl_uart_stm32 snowy_qemu_uart;
 #ifdef CONFIG_BT_HCI_UART
 // A port over the HCI USART that is never registered, so never initialised:
 // the legacy transport drives the USART itself (BOARD_BT_HCI_UART_DEV).
-extern const struct pbl_uart_stm32 snowy_bt_hci_port;
+extern const struct pbl_uart snowy_bt_hci_port;
 #endif
 
 extern const struct pbl_display_ice40lp snowy_display;
