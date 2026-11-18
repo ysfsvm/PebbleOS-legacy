@@ -11,7 +11,8 @@
 #define STM32F4_RCC_PLLCFGR_OFFSET 0x04
 #define STM32F4_RCC_CFGR_OFFSET    0x08
 /* AHB1ENR, AHB2ENR, AHB3ENR, a gap, APB1ENR and APB2ENR, one word each */
-#define STM32F4_RCC_ENR_OFFSET(n) (0x30 + 4 * (n))
+#define STM32F4_RCC_ENR_OFFSET(n)  (0x30 + 4 * (n))
+#define STM32F4_RCC_DCKCFGR_OFFSET 0x8c
 
 /* Register bit definitions */
 
@@ -27,6 +28,8 @@
 #define STM32F4_RCC_CFGR_HPRE_MASK  PBL_GENMASK(7, 4)
 #define STM32F4_RCC_CFGR_PPRE1_MASK PBL_GENMASK(12, 10)
 #define STM32F4_RCC_CFGR_PPRE2_MASK PBL_GENMASK(15, 13)
+
+#define STM32F4_RCC_DCKCFGR_TIMPRE PBL_BIT(24)
 
 /* The internal RC oscillator */
 #define STM32F4_HSI_HZ 16000000U

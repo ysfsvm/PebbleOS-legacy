@@ -19,12 +19,19 @@
 #define ID_HCLK   STM32F4_CLK_ID(1, END_PRIMARY_CLK)
 #define ID_PCLK1  STM32F4_CLK_ID(1, END_PRIMARY_CLK + 1)
 #define ID_PCLK2  STM32F4_CLK_ID(1, END_PRIMARY_CLK + 2)
-#define ID_COUNT  STM32F4_CLK_ID(1, END_PRIMARY_CLK + 3)
+// The timer kernel clocks of the APB1 and APB2 timers
+#define ID_TIMCLK1 STM32F4_CLK_ID(1, END_PRIMARY_CLK + 3)
+#define ID_TIMCLK2 STM32F4_CLK_ID(1, END_PRIMARY_CLK + 4)
+#define ID_COUNT   STM32F4_CLK_ID(1, END_PRIMARY_CLK + 5)
 
 // Gates are 32 per bus: AHB1, AHB2, AHB3, APB1, APB2
 #define GATE_BUS(id) ((id) >> 5)
 #define BUS_APB1     3U
 #define BUS_APB2     4U
+
+// The timer gates: TIM2-7 and TIM12-14 on APB1, TIM1, TIM8 and TIM9-11 on APB2
+#define APB1_TIMERS 0x000001ffU
+#define APB2_TIMERS 0x00070003U
 
 #define MHZ_PER_HZ 1000ULL
 
@@ -39,7 +46,8 @@ static const struct pbl_clk_stm32f4 *prv_rcc(const struct pbl_clk_controller *ct
 
 // The clocks between the oscillators and the gates, which always run
 static bool prv_is_bus_clk(uint32_t id) {
-  return id == ID_HSI || id == ID_SYSCLK || id == ID_HCLK || id == ID_PCLK1 || id == ID_PCLK2;
+  return id == ID_HSI || id == ID_SYSCLK || id == ID_HCLK || id == ID_PCLK1 || id == ID_PCLK2 ||
+         id == ID_TIMCLK1 || id == ID_TIMCLK2;
 }
 
 static uintptr_t prv_enr(const struct pbl_clk_stm32f4 *rcc, uint32_t id) {
@@ -95,6 +103,18 @@ static uint32_t prv_apb_div(uint32_t ppre) {
   return ppre < 4U ? 1U : 1U << (ppre - 3U);
 }
 
+// Timers run at PCLK with an APB divider of 1, else at twice PCLK; with TIMPRE, at HCLK up to a
+// divider of 4, else at four times PCLK
+static uint32_t prv_tim_mul(uint32_t ppre, uint32_t dckcfgr) {
+  uint32_t div = prv_apb_div(ppre);
+
+  if ((dckcfgr & STM32F4_RCC_DCKCFGR_TIMPRE) != 0U) {
+    return div <= 4U ? div : 4U;
+  }
+
+  return div == 1U ? 1U : 2U;
+}
+
 // SYSCLK is the root: STOP wakes on the HSI before the PLL is back, so its source changes
 // under the class, which counts the users of a parent.
 static int prv_sysclk_mhz(const struct pbl_clk_stm32f4 *rcc, uint64_t *rate_mhz) {
@@ -128,6 +148,7 @@ static int prv_get_rate(const struct pbl_clk_controller *ctrl, uint32_t id, uint
                         uint64_t *rate_mhz) {
   const struct pbl_clk_stm32f4 *rcc = prv_rcc(ctrl);
   uint32_t cfgr = pbl_readl(rcc->base + STM32F4_RCC_CFGR_OFFSET);
+  uint32_t dckcfgr;
 
   if (id < STM32F4_CLK_NUM_GATES) {
     *rate_mhz = parent_mhz;
@@ -149,6 +170,16 @@ static int prv_get_rate(const struct pbl_clk_controller *ctrl, uint32_t id, uint
     case ID_PCLK2:
       *rate_mhz = parent_mhz / prv_apb_div(PBL_FIELD_GET(STM32F4_RCC_CFGR_PPRE2_MASK, cfgr));
       return 0;
+    case ID_TIMCLK1:
+      dckcfgr = pbl_readl(rcc->base + STM32F4_RCC_DCKCFGR_OFFSET);
+      *rate_mhz =
+          parent_mhz * prv_tim_mul(PBL_FIELD_GET(STM32F4_RCC_CFGR_PPRE1_MASK, cfgr), dckcfgr);
+      return 0;
+    case ID_TIMCLK2:
+      dckcfgr = pbl_readl(rcc->base + STM32F4_RCC_DCKCFGR_OFFSET);
+      *rate_mhz =
+          parent_mhz * prv_tim_mul(PBL_FIELD_GET(STM32F4_RCC_CFGR_PPRE2_MASK, cfgr), dckcfgr);
+      return 0;
     default:
       return -ENOTSUP;
   }
@@ -161,15 +192,19 @@ static int prv_get_parent(const struct pbl_clk_controller *ctrl, uint32_t id,
   if (id < STM32F4_CLK_NUM_GATES) {
     switch (GATE_BUS(id)) {
       case BUS_APB1:
-        parent_id = ID_PCLK1;
+        parent_id = (APB1_TIMERS & PBL_BIT(id & 31U)) != 0U ? ID_TIMCLK1 : ID_PCLK1;
         break;
       case BUS_APB2:
-        parent_id = ID_PCLK2;
+        parent_id = (APB2_TIMERS & PBL_BIT(id & 31U)) != 0U ? ID_TIMCLK2 : ID_PCLK2;
         break;
       default:
         parent_id = ID_HCLK;
         break;
     }
+  } else if (id == ID_TIMCLK1) {
+    parent_id = ID_PCLK1;
+  } else if (id == ID_TIMCLK2) {
+    parent_id = ID_PCLK2;
   } else if (id == ID_PCLK1 || id == ID_PCLK2) {
     parent_id = ID_HCLK;
   } else if (id == ID_HCLK) {

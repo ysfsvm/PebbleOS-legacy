@@ -12,7 +12,8 @@
  *
  * A clock is named in the tree by the two cells of the upstream binding: 0 and the gate of a
  * peripheral, @c STM32F4_AHB1_CLOCK(GPIOA) and the like, or 1 and a clock of
- * <dt-bindings/clock/stm32fx-clock.h>. A gate runs at the rate of its bus.
+ * <dt-bindings/clock/stm32fx-clock.h>. A gate runs at the rate of its bus, a timer gate at
+ * the timer clock of its bus (twice the bus rate when the bus is divided).
  * @{
  */
 
