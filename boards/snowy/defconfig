@@ -31,6 +31,10 @@ CONFIG_MAG_MAG3110=y
 CONFIG_BT_HCI_UART=y
 CONFIG_BT_CONTROLLER_CC2564=y
 
+# DMA stream interrupts at the priority of the pin interrupts, so the display's
+# DMA handler cannot preempt its BUSY one.
+CONFIG_DMA_STM32F4_IRQ_PRIO=14
+
 # Pack display lines in the DMA interrupt at -O3.
 CONFIG_DISPLAY_ICE40LP_STM32_FAST_LINE=y
 

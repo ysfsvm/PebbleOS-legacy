@@ -24,7 +24,7 @@
 
 #include <pbl/board.h>
 #include <pbl/drivers/display/ice40lp.h>
-#include <pbl/drivers/dma/stm32.h>
+#include <pbl/drivers/dma.h>
 #include <pbl/drivers/gpio/stm32.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/kernel/delay.h>
@@ -425,6 +425,19 @@ static int prv_init(const struct pbl_display *disp) {
     PBL_LOG_ERR("No BUSY interrupt (%d): polling BUSY", ret);
   }
 
+  ret = pbl_device_init(&cfg->tx_dma.ctrl->dev);
+  if (ret != 0) {
+    return ret;
+  }
+  const struct pbl_dma_slave_config dma_cfg = {
+    .dst_addr = (uintptr_t)&cfg->spi->DR,
+    .dst_addr_width = PBL_DMA_SLAVE_BUSWIDTH_1_BYTE,
+  };
+  ret = pbl_dma_slave_config(&cfg->tx_dma, &dma_cfg);
+  if (ret != 0) {
+    return ret;
+  }
+
   prv_show_boot_splash();
   s_programmed = prv_program_retry();
   prv_power_enable();
@@ -520,18 +533,31 @@ static void prv_end_frame(void) {
   pbl_timer_stop(&s_frame_timer);
 }
 
-static void prv_dma_done(void *context, bool is_complete);
+//! From an interrupt: end the frame on a DMA error.
+static void prv_fail_frame(int status) {
+  prv_end_frame();
+  PBL_LOG_WRN("Display DMA failed at line %d: %d", s_sent, status);
+  pbl_display_complete(s_disp, status);
+}
+
+static void prv_dma_done(void *arg, int status);
 
 //! Start line s_sent and prepare the one after it.
-static void prv_send_next_line(void) {
+static int prv_send_next_line(void) {
   const int line = s_sent;
+  int ret;
+
   s_sent = line + 1;
-  pbl_dma_stm32_start_tx(BOARD_CONFIG_DISPLAY.tx_dma, &BOARD_CONFIG_DISPLAY.spi->DR,
-                         s_lines[line & 1], DISP_PIXELS, DMA_Priority_VeryHigh, prv_dma_done,
-                         nullptr);
+  ret = pbl_dma_prep_slave_single(&BOARD_CONFIG_DISPLAY.tx_dma, s_lines[line & 1], DISP_PIXELS,
+                                  PBL_DMA_MEM_TO_DEV, prv_dma_done, nullptr);
+  if (ret != 0) {
+    return ret;
+  }
   if (s_sent < DISP_LINES) {
     prv_get_line(s_fb, s_sent, s_lines[s_sent & 1]);
   }
+
+  return 0;
 }
 
 static void prv_busy_isr(void *arg) {
@@ -548,11 +574,20 @@ static void prv_busy_isr(void *arg) {
   }
   s_waiting_busy = false;
   (void)pbl_intc_disable(&s_busy_irq);
-  prv_send_next_line();
+  int ret = prv_send_next_line();
+  if (ret != 0) {
+    prv_fail_frame(ret);
+  }
 }
 
-static void prv_dma_done(void *context, bool is_complete) {
+static void prv_dma_done(void *arg, int status) {
+  int ret;
+
   if (!s_frame_active) {
+    return;
+  }
+  if (status != 0) {
+    prv_fail_frame(status);
     return;
   }
   if (s_sent >= DISP_LINES) {
@@ -575,12 +610,16 @@ static void prv_dma_done(void *context, bool is_complete) {
     s_waiting_busy = false;
     (void)pbl_intc_disable(&s_busy_irq);
   }
-  prv_send_next_line();
+  ret = prv_send_next_line();
+  if (ret != 0) {
+    prv_fail_frame(ret);
+  }
 }
 
 //! In KernelMain.
 static void prv_start_dma_frame(const uint8_t *fb) {
   const BoardConfigIce40Display *cfg = &BOARD_CONFIG_DISPLAY;
+  int ret;
 
 #ifdef CONFIG_DISPLAY_ICE40LP_STM32_BUSY_EDGE
   if (!prv_wait_not_busy_edge()) {
@@ -607,8 +646,16 @@ static void prv_start_dma_frame(const uint8_t *fb) {
   pbl_timer_start(&s_frame_timer, PBL_MSEC(FRAME_TIMEOUT_MS));
   pbl_irq_lock();
   s_frame_active = true;
-  prv_send_next_line();
+  ret = prv_send_next_line();
+  if (ret != 0) {
+    prv_end_frame();
+  }
   pbl_irq_unlock();
+
+  if (ret != 0) {
+    PBL_LOG_WRN("Display DMA did not start: %d", ret);
+    pbl_display_complete(s_disp, ret);
+  }
 }
 
 //! Stuck (e.g. BUSY never fell): end the frame rather than hang the UI.
@@ -617,7 +664,7 @@ static void prv_frame_timeout(struct pbl_timer *timer) {
 
   pbl_irq_lock();
   if (s_frame_active) {
-    pbl_dma_stm32_stop(BOARD_CONFIG_DISPLAY.tx_dma);
+    (void)pbl_dma_terminate(&BOARD_CONFIG_DISPLAY.tx_dma);
     prv_end_frame();
     ended = true;
   }
