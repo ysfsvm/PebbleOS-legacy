@@ -53,6 +53,14 @@ struct pbl_gpio_stm32 {
 void pbl_gpio_stm32_af(const struct pbl_gpio *gpio, uint8_t af, uint32_t flags, uint32_t speed);
 
 /**
+ * @brief Find a port.
+ *
+ * @param index Port index, A = 0.
+ * @return The port, or NULL if the tree has none with that index.
+ */
+const struct pbl_gpio_port *pbl_gpio_stm32_port(uint8_t index);
+
+/**
  * @brief Put a pin in analog mode (lowest power, or for the ADC).
  *
  * @param gpio Pin on an STM32 port.

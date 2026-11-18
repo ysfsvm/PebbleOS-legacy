@@ -22,6 +22,14 @@ config PINCTRL_SF32LB52_OUTPUT_LOW
     help
       Pins of a state can be driven low, through the GPIO driver.
 
+config PINCTRL_STM32
+    bool "ST STM32F4 pin controller"
+    default DT_HAS_ST_STM32F429_PINCTRL_ENABLED
+    depends on GPIO_STM32
+    help
+      Alternate functions and pad configuration of the STM32F4 GPIO
+      ports.
+
 config PINCTRL_SHELL
     bool "Pin controller shell commands"
     default DRIVER_SHELL

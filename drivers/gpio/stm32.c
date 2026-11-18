@@ -98,6 +98,20 @@ static const struct pbl_gpio_port_ops s_ops = {
   .set = prv_set,
 };
 
+const struct pbl_gpio_port *pbl_gpio_stm32_port(uint8_t index) {
+  const struct pbl_device *dev;
+
+  PBL_DEVICE_CLASS_FOREACH(&pbl_gpio_port_class, dev) {
+    const struct pbl_gpio_port *port = container_of(dev, const struct pbl_gpio_port, dev);
+
+    if (port->ops == &s_ops && prv_port(port)->index == index) {
+      return port;
+    }
+  }
+
+  return nullptr;
+}
+
 static int prv_init(const struct pbl_device *dev) {
   return pbl_clk_enable(&prv_port(container_of(dev, const struct pbl_gpio_port, dev))->clk);
 }
@@ -252,4 +266,4 @@ static int prv_intc_init(const struct pbl_device *dev) {
     .port = &sym##_inst, .exti = (_exti), .syscfg = (_syscfg), .syscfg_clk = _syscfg_clk, \
   }
 
-#include PBL_DT_INSTANCES(st_stm32f429_pinctrl)
+#include PBL_DT_INSTANCES(st_stm32f429_pinctrl_gpio)
