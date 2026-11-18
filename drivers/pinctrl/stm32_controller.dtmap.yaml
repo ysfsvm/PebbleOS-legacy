@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 retake
+# SPDX-License-Identifier: Apache-2.0
+
+compatible: st,stm32f429-pinctrl
+config: PINCTRL_STM32
+class: pinctrl_controller
+define: PBL_PINCTRL_STM32_DEFINE
+symbol: pbl_pinctrl_stm32
+args:
+  - name: true
