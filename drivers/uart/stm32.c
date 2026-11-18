@@ -1,311 +1,232 @@
-/* SPDX-FileCopyrightText: 2024 Google LLC */
+/* SPDX-FileCopyrightText: 2026 retake */
 /* SPDX-License-Identifier: Apache-2.0 */
-
-//! STM32F4 USART. RX is interrupt driven.
 
 #include <errno.h>
 
-#include <pbl/drivers/gpio/stm32.h>
-#include <pbl/drivers/uart.h>
+#include <pbl/devicetree.h>
 #include <pbl/drivers/uart/stm32.h>
-#include <pbl/kernel/assert.h>
-#include <pbl/kernel/fatal.h>
 #include <pbl/kernel/irq.h>
-#include <pbl/soc/stm32/clock.h>
+#include <pbl/kernel/mmio.h>
+#include <pbl/util/bits.h>
 #include <pbl/util/misc.h>
 
-// Fixed point precision for the baud rate divider, as the ST library uses.
-#define DIV_PRECISION (100)
+#include <hardware/stm32f4_usart.h>
 
-typedef enum UARTCR1Flags {
-  UARTCR1Flags_Duplex = USART_CR1_TE | USART_CR1_RE,
-  UARTCR1Flags_TE = USART_CR1_TE,
-  UARTCR1Flags_RE = USART_CR1_RE,
-} UARTCR1Flags;
+#define MHZ_PER_HZ 1000ULL
 
-static void prv_clock(UARTDevice *dev, bool enable) {
-  if (dev->apb2) {
-    soc_stm32_clock_set(SOC_STM32_APB2, dev->rcc_apb_periph, enable);
-  } else {
-    soc_stm32_clock_set(SOC_STM32_APB1, dev->rcc_apb_periph, enable);
-  }
+#define CR1_FRAME (STM32F4_USART_CR1_M | STM32F4_USART_CR1_PCE | STM32F4_USART_CR1_PS)
+#define CR3_FLOW  (STM32F4_USART_CR3_RTSE | STM32F4_USART_CR3_CTSE)
+
+static const struct pbl_uart_stm32 *prv_stm32(const struct pbl_uart *uart) {
+  return container_of(uart, const struct pbl_uart_stm32, uart);
 }
 
-static void prv_init(UARTDevice *dev, bool is_open_drain, UARTCR1Flags cr1_flags) {
-  prv_clock(dev, true);
+static inline uintptr_t prv_reg(const struct pbl_uart_stm32 *usart, uint32_t offset) {
+  return usart->base + offset;
+}
 
-  const uint32_t flags = is_open_drain ? PBL_GPIO_OPEN_DRAIN : 0;
-  if (pbl_gpio_is_connected(&dev->tx)) {
-    pbl_gpio_stm32_af(&dev->tx, dev->af, flags, GPIO_Speed_50MHz);
-  }
-  if (pbl_gpio_is_connected(&dev->rx)) {
-    pbl_gpio_stm32_af(&dev->rx, dev->af, flags, GPIO_Speed_50MHz);
-  }
-  const bool flow_control = pbl_gpio_is_connected(&dev->cts) && pbl_gpio_is_connected(&dev->rts);
-  if (flow_control) {
-    pbl_gpio_stm32_af(&dev->cts, dev->af, 0, GPIO_Speed_50MHz);
-    pbl_gpio_stm32_af(&dev->rts, dev->af, 0, GPIO_Speed_50MHz);
+static inline uint32_t prv_getreg(const struct pbl_uart_stm32 *usart, uint32_t offset) {
+  return pbl_readl(prv_reg(usart, offset));
+}
+
+static inline void prv_putreg(const struct pbl_uart_stm32 *usart, uint32_t offset, uint32_t value) {
+  pbl_writel(value, prv_reg(usart, offset));
+}
+
+// Waits only for bytes sent from here
+static void prv_flush(const struct pbl_uart *uart) {
+  const struct pbl_uart_stm32 *usart = prv_stm32(uart);
+
+  if (!usart->state->tx_pending) {
+    return;
   }
 
-  // 8N1, hardware flow control if wired
-  dev->periph->CR1 = cr1_flags;
-  dev->periph->CR2 = 0;
-  dev->periph->CR3 = flow_control ? (USART_CR3_CTSE | USART_CR3_RTSE) : 0;
-
-  // Clear stale errors: read SR then DR.
-  (void)dev->periph->SR;
-  (void)dev->periph->DR;
-
-  dev->periph->CR1 |= USART_CR1_UE;
-
-  dev->state->initialized = true;
-}
-
-void uart_init(UARTDevice *dev) {
-  prv_init(dev, false, UARTCR1Flags_Duplex);
-}
-
-void uart_init_open_drain(UARTDevice *dev) {
-  prv_init(dev, true, UARTCR1Flags_Duplex);
-}
-
-void uart_init_tx_only(UARTDevice *dev) {
-  prv_init(dev, false, UARTCR1Flags_TE);
-}
-
-void uart_init_rx_only(UARTDevice *dev) {
-  prv_init(dev, false, UARTCR1Flags_RE);
-}
-
-void uart_deinit(UARTDevice *dev) {
-  dev->periph->CR1 &= ~USART_CR1_UE;
-  prv_clock(dev, false);
-
-  // Digital inputs rather than analog: the pins may need to be 5V tolerant.
-  if (pbl_gpio_is_connected(&dev->tx)) {
-    pbl_gpio_configure(&dev->tx, PBL_GPIO_INPUT);
+  while ((prv_getreg(usart, STM32F4_USART_SR_OFFSET) & STM32F4_USART_SR_TC) == 0U) {
   }
-  if (pbl_gpio_is_connected(&dev->rx)) {
-    pbl_gpio_configure(&dev->rx, PBL_GPIO_INPUT);
-  }
-  if (pbl_gpio_is_connected(&dev->cts)) {
-    pbl_gpio_configure(&dev->cts, PBL_GPIO_INPUT);
-  }
-  if (pbl_gpio_is_connected(&dev->rts)) {
-    pbl_gpio_configure(&dev->rts, PBL_GPIO_INPUT);
-  }
+  usart->state->tx_pending = false;
 }
 
-void uart_set_baud_rate(UARTDevice *dev, uint32_t baud_rate) {
-  PBL_ASSERTN(dev->state->initialized);
+static int prv_setup(const struct pbl_uart_stm32 *usart, uint32_t cr1) {
+  int ret;
 
-  RCC_ClocksTypeDef clocks;
-  RCC_GetClocksFreq(&clocks);
-  const uint64_t scaled_apbclock =
-      (uint64_t)DIV_PRECISION * (dev->apb2 ? clocks.PCLK2_Frequency : clocks.PCLK1_Frequency);
-
-  // BRR holds DIV = f_clk / (samples * baud) as fixed point, with as many
-  // fractional bits as samples per symbol need (4 for 16x, 3 for 8x).
-  const bool over8 = dev->periph->CR1 & USART_CR1_OVER8;
-  const uint32_t samples = over8 ? 8 : 16;
-  const uint32_t div_temp = scaled_apbclock / (samples * baud_rate);
-  const uint32_t mantissa = div_temp / DIV_PRECISION;
-  uint32_t fraction = div_temp - mantissa * DIV_PRECISION;
-  fraction = (fraction * samples + (DIV_PRECISION / 2)) / DIV_PRECISION;
-
-  if (over8) {
-    dev->periph->BRR = (mantissa << 3) | (fraction & 0x7);
-  } else {
-    dev->periph->BRR = (mantissa << 4) | (fraction & 0xF);
-  }
-}
-
-void uart_write_byte(UARTDevice *dev, uint8_t data) {
-  PBL_ASSERTN(dev->state->initialized);
-
-  while (!uart_is_tx_ready(dev)) {
+  ret = pbl_device_init(&usart->clk.ctrl->dev);
+  if (ret != 0) {
+    return ret;
   }
 
-  dev->periph->DR = data;
-}
-
-uint8_t uart_read_byte(UARTDevice *dev) {
-  // Reading DR also clears the error flags.
-  return dev->periph->DR;
-}
-
-UARTRXErrorFlags uart_has_errored_out(UARTDevice *dev) {
-  const uint16_t errors = dev->periph->SR;
-
-  return (UARTRXErrorFlags){
-    .parity_error = (errors & USART_FLAG_PE) != 0,
-    .overrun_error = (errors & USART_FLAG_ORE) != 0,
-    .framing_error = (errors & USART_FLAG_FE) != 0,
-    .noise_detected = (errors & USART_FLAG_NE) != 0,
-  };
-}
-
-bool uart_is_rx_ready(UARTDevice *dev) {
-  return dev->periph->SR & USART_SR_RXNE;
-}
-
-bool uart_has_rx_overrun(UARTDevice *dev) {
-  return dev->periph->SR & USART_SR_ORE;
-}
-
-bool uart_has_rx_framing_error(UARTDevice *dev) {
-  return dev->periph->SR & USART_SR_FE;
-}
-
-bool uart_is_tx_ready(UARTDevice *dev) {
-  return dev->periph->SR & USART_SR_TXE;
-}
-
-bool uart_is_tx_complete(UARTDevice *dev) {
-  return dev->periph->SR & USART_SR_TC;
-}
-
-void uart_wait_for_tx_complete(UARTDevice *dev) {
-  while (!uart_is_tx_complete(dev)) {
-  }
-}
-
-// Interrupts
-////////////////////////////////////////////////////////////////////////////////
-
-static void prv_set_interrupt_enabled(UARTDevice *dev, bool enabled) {
-  if (enabled) {
-    PBL_ASSERTN(dev->state->tx_irq_handler || dev->state->rx_irq_handler);
-    pbl_irq_enable(dev->irqn);
-  } else {
-    pbl_irq_disable(dev->irqn);
-  }
-}
-
-void uart_set_rx_interrupt_handler(UARTDevice *dev, UARTRXInterruptHandler irq_handler) {
-  PBL_ASSERTN(dev->state->initialized);
-  dev->state->rx_irq_handler = irq_handler;
-}
-
-void uart_set_tx_interrupt_handler(UARTDevice *dev, UARTTXInterruptHandler irq_handler) {
-  PBL_ASSERTN(dev->state->initialized);
-  dev->state->tx_irq_handler = irq_handler;
-}
-
-void uart_set_rx_interrupt_enabled(UARTDevice *dev, bool enabled) {
-  PBL_ASSERTN(dev->state->initialized);
-  if (enabled) {
-    dev->state->rx_int_enabled = true;
-    dev->periph->CR1 |= USART_CR1_RXNEIE;
-    prv_set_interrupt_enabled(dev, true);
-  } else {
-    prv_set_interrupt_enabled(dev, dev->state->tx_int_enabled);
-    dev->periph->CR1 &= ~USART_CR1_RXNEIE;
-    dev->state->rx_int_enabled = false;
-  }
-}
-
-void uart_set_tx_interrupt_enabled(UARTDevice *dev, bool enabled) {
-  PBL_ASSERTN(dev->state->initialized);
-  if (enabled) {
-    dev->state->tx_int_enabled = true;
-    dev->periph->CR1 |= USART_CR1_TXEIE;
-    prv_set_interrupt_enabled(dev, true);
-  } else {
-    prv_set_interrupt_enabled(dev, dev->state->rx_int_enabled);
-    dev->periph->CR1 &= ~USART_CR1_TXEIE;
-    dev->state->tx_int_enabled = false;
-  }
-}
-
-void uart_irq_handler(UARTDevice *dev) {
-  PBL_ASSERTN(dev->state->initialized);
-
-  if (dev->state->rx_irq_handler && dev->state->rx_int_enabled) {
-    const UARTRXErrorFlags err_flags = {
-      .overrun_error = uart_has_rx_overrun(dev),
-      .framing_error = uart_has_rx_framing_error(dev),
-    };
-    const bool has_byte = uart_is_rx_ready(dev);
-    // Read DR regardless, to clear the error flags.
-    const uint8_t data = uart_read_byte(dev);
-    if (has_byte) {
-      dev->state->rx_irq_handler(dev, data, &err_flags);
-    }
+  ret = pbl_clk_enable(&usart->clk);
+  if (ret != 0) {
+    return ret;
   }
 
-  if (dev->state->tx_irq_handler && dev->state->tx_int_enabled && uart_is_tx_ready(dev)) {
-    dev->state->tx_irq_handler(dev);
+  ret = pbl_pinctrl_select_state(&usart->pinctrl, PBL_PINCTRL_STATE_DEFAULT);
+  if (ret != 0 && ret != -ENOENT) {
+    return ret;
   }
-}
 
-void uart_clear_all_interrupt_flags(UARTDevice *dev) {
-  dev->periph->SR &= ~(USART_SR_TXE | USART_SR_RXNE | USART_SR_ORE);
-}
+  prv_flush(&usart->uart);
 
-// Class port
-///////////////////////////////////////////////////////////////////////////////
+  prv_putreg(usart, STM32F4_USART_CR1_OFFSET, 0U);
+  prv_putreg(usart, STM32F4_USART_CR2_OFFSET, 0U);
+  prv_putreg(usart, STM32F4_USART_CR3_OFFSET, 0U);
 
-static UARTDevice *prv_dev(const struct pbl_uart *uart) {
-  return container_of(uart, const struct pbl_uart_stm32, uart)->dev;
-}
+  // Clear stale errors and data
+  (void)prv_getreg(usart, STM32F4_USART_SR_OFFSET);
+  (void)prv_getreg(usart, STM32F4_USART_DR_OFFSET);
 
-static void prv_class_rx(UARTDevice *dev, uint8_t data, const UARTRXErrorFlags *err_flags) {
-  if (!pbl_uart_receive(dev->state->uart, data)) {
-    uart_set_rx_interrupt_enabled(dev, false);
-  }
-}
-
-static int prv_class_init(const struct pbl_uart *uart) {
-  UARTDevice *dev = prv_dev(uart);
-
-  dev->state->uart = uart;
-  uart_init(dev);
-  uart_set_rx_interrupt_handler(dev, prv_class_rx);
+  prv_putreg(usart, STM32F4_USART_CR1_OFFSET, cr1 | STM32F4_USART_CR1_UE);
 
   return 0;
 }
 
-static int prv_class_early_init(const struct pbl_uart *uart) {
-  uart_init_tx_only(prv_dev(uart));
+static int prv_early_init(const struct pbl_uart *uart) {
+  return prv_setup(prv_stm32(uart), STM32F4_USART_CR1_TE);
+}
+
+static int prv_init(const struct pbl_uart *uart) {
+  const struct pbl_uart_stm32 *usart = prv_stm32(uart);
+  int ret;
+
+  ret = prv_setup(usart, STM32F4_USART_CR1_TE | STM32F4_USART_CR1_RE);
+  if (ret != 0) {
+    return ret;
+  }
+
+  pbl_irq_enable(usart->irq);
 
   return 0;
 }
 
-static int prv_class_configure(const struct pbl_uart *uart, const struct pbl_uart_config *cfg) {
-  if (cfg->parity != PBL_UART_PARITY_NONE || cfg->flow_ctrl != PBL_UART_FLOW_CTRL_NONE) {
+// USARTDIV, 8x oversampling for high rates
+static int prv_brr(uint32_t clk_hz, uint32_t baudrate, uint32_t *brr, bool *over8) {
+  uint32_t div = (clk_hz + baudrate / 2U) / baudrate;
+
+  if (div > (STM32F4_USART_BRR_MANTISSA_MASK | STM32F4_USART_BRR_FRACTION_MASK) || div < 8U) {
     return -ENOTSUP;
   }
 
-  uart_set_baud_rate(prv_dev(uart), cfg->baudrate);
+  *over8 = div < 16U;
+  *brr = *over8 ? PBL_FIELD_PREP(STM32F4_USART_BRR_MANTISSA_MASK, div >> 3) | (div & 0x7U) : div;
 
   return 0;
 }
 
-static void prv_class_poll_out(const struct pbl_uart *uart, uint8_t c) {
-  uart_write_byte(prv_dev(uart), c);
-}
+static int prv_configure(const struct pbl_uart *uart, const struct pbl_uart_config *cfg) {
+  const struct pbl_uart_stm32 *usart = prv_stm32(uart);
+  uint32_t cr1 = 0U;
+  uint32_t cr3 = 0U;
+  uint64_t rate_mhz;
+  uint32_t brr;
+  bool over8;
+  int ret;
 
-static void prv_class_flush(const struct pbl_uart *uart) {
-  uart_wait_for_tx_complete(prv_dev(uart));
-}
+  switch (cfg->parity) {
+    case PBL_UART_PARITY_NONE:
+      break;
+    case PBL_UART_PARITY_ODD:
+      cr1 = STM32F4_USART_CR1_M | STM32F4_USART_CR1_PCE | STM32F4_USART_CR1_PS;
+      break;
+    case PBL_UART_PARITY_EVEN:
+      cr1 = STM32F4_USART_CR1_M | STM32F4_USART_CR1_PCE;
+      break;
+    default:
+      return -ENOTSUP;
+  }
 
-static int prv_class_rx_enable(const struct pbl_uart *uart) {
-  uart_set_rx_interrupt_enabled(prv_dev(uart), true);
+  switch (cfg->flow_ctrl) {
+    case PBL_UART_FLOW_CTRL_NONE:
+      break;
+    case PBL_UART_FLOW_CTRL_RTS_CTS:
+      if (!usart->rtscts) {
+        return -ENOTSUP;
+      }
+      cr3 = CR3_FLOW;
+      break;
+    default:
+      return -ENOTSUP;
+  }
+
+  ret = pbl_clk_get_rate(&usart->clk, &rate_mhz);
+  if (ret != 0) {
+    return ret;
+  }
+
+  ret = prv_brr((uint32_t)(rate_mhz / MHZ_PER_HZ), cfg->baudrate, &brr, &over8);
+  if (ret != 0) {
+    return ret;
+  }
+
+  if (over8) {
+    cr1 |= STM32F4_USART_CR1_OVER8;
+  }
+
+  prv_flush(uart);
+
+  pbl_modifyl(STM32F4_USART_CR1_UE, 0U, prv_reg(usart, STM32F4_USART_CR1_OFFSET));
+  pbl_modifyl(CR1_FRAME | STM32F4_USART_CR1_OVER8, cr1, prv_reg(usart, STM32F4_USART_CR1_OFFSET));
+  pbl_modifyl(CR3_FLOW, cr3, prv_reg(usart, STM32F4_USART_CR3_OFFSET));
+  prv_putreg(usart, STM32F4_USART_BRR_OFFSET, brr);
+  pbl_modifyl(0U, STM32F4_USART_CR1_UE, prv_reg(usart, STM32F4_USART_CR1_OFFSET));
 
   return 0;
 }
 
-static void prv_class_rx_disable(const struct pbl_uart *uart) {
-  uart_set_rx_interrupt_enabled(prv_dev(uart), false);
+static void prv_poll_out(const struct pbl_uart *uart, uint8_t c) {
+  const struct pbl_uart_stm32 *usart = prv_stm32(uart);
+
+  while ((prv_getreg(usart, STM32F4_USART_SR_OFFSET) & STM32F4_USART_SR_TXE) == 0U) {
+  }
+  prv_putreg(usart, STM32F4_USART_DR_OFFSET, c);
+  usart->state->tx_pending = true;
+}
+
+static int prv_rx_enable(const struct pbl_uart *uart) {
+  const struct pbl_uart_stm32 *usart = prv_stm32(uart);
+
+  pbl_modifyl(0U, STM32F4_USART_CR1_RXNEIE, prv_reg(usart, STM32F4_USART_CR1_OFFSET));
+
+  return 0;
+}
+
+static void prv_rx_disable(const struct pbl_uart *uart) {
+  const struct pbl_uart_stm32 *usart = prv_stm32(uart);
+
+  pbl_modifyl(STM32F4_USART_CR1_RXNEIE, 0U, prv_reg(usart, STM32F4_USART_CR1_OFFSET));
+}
+
+void pbl_uart_stm32_irq_handler(const struct pbl_uart_stm32 *usart) {
+  uint32_t sr = prv_getreg(usart, STM32F4_USART_SR_OFFSET);
+  uint32_t cr1 = prv_getreg(usart, STM32F4_USART_CR1_OFFSET);
+  uint8_t c;
+
+  if ((cr1 & STM32F4_USART_CR1_RXNEIE) == 0U ||
+      (sr & (STM32F4_USART_SR_RXNE | STM32F4_USART_SR_ORE)) == 0U) {
+    return;
+  }
+
+  // Clears the error flags
+  c = (uint8_t)prv_getreg(usart, STM32F4_USART_DR_OFFSET);
+
+  if ((sr & STM32F4_USART_SR_ORE) != 0U) {
+    usart->state->overruns++;
+  }
+  if ((sr & STM32F4_USART_SR_FE) != 0U) {
+    usart->state->framing_errors++;
+  }
+
+  if ((sr & STM32F4_USART_SR_RXNE) != 0U && !pbl_uart_receive(&usart->uart, c)) {
+    prv_rx_disable(&usart->uart);
+  }
 }
 
 const struct pbl_uart_ops pbl_uart_stm32_ops = {
-  .init = prv_class_init,
-  .early_init = prv_class_early_init,
-  .configure = prv_class_configure,
-  .poll_out = prv_class_poll_out,
-  .flush = prv_class_flush,
-  .rx_enable = prv_class_rx_enable,
-  .rx_disable = prv_class_rx_disable,
+  .init = prv_init,
+  .early_init = prv_early_init,
+  .configure = prv_configure,
+  .poll_out = prv_poll_out,
+  .flush = prv_flush,
+  .rx_enable = prv_rx_enable,
+  .rx_disable = prv_rx_disable,
 };
+
+#include PBL_DT_INSTANCES(st_stm32_uart)

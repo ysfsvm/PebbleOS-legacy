@@ -26,7 +26,7 @@
 #include <pbl/board.h>
 #include <pbl/drivers/bluetooth/cc2564.h>
 #include <pbl/drivers/gpio/stm32.h>
-#include <pbl/drivers/uart/stm32.h>
+#include <pbl/drivers/uart/stm32_legacy.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/reboot.h>

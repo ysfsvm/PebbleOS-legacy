@@ -1,0 +1,38 @@
+// SPDX-FileCopyrightText: 2026 Yusuf Sevim
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+// Every option of a pin is written, so each UART pin names its speed: 50 MHz (slew-rate 2).
+
+&pinctrl {
+	usart1_default: usart1-0 {
+		pins1 {
+			pinmux = <STM32_PINMUX('A', 9, AF7)>, /* USART1_TX */
+				 <STM32_PINMUX('A', 12, AF7)>; /* USART1_RTS */
+			bias-disable;
+			drive-push-pull;
+			slew-rate = <2>;
+		};
+
+		pins2 {
+			pinmux = <STM32_PINMUX('A', 10, AF7)>, /* USART1_RX */
+				 <STM32_PINMUX('A', 11, AF7)>; /* USART1_CTS */
+			bias-disable;
+			slew-rate = <2>;
+		};
+	};
+
+	usart3_default: usart3-0 {
+		pins1 {
+			pinmux = <STM32_PINMUX('C', 10, AF7)>; /* USART3_TX */
+			bias-disable;
+			drive-push-pull;
+			slew-rate = <2>;
+		};
+
+		pins2 {
+			pinmux = <STM32_PINMUX('C', 11, AF7)>; /* USART3_RX */
+			bias-disable;
+			slew-rate = <2>;
+		};
+	};
+};

@@ -1,15 +1,13 @@
 # SPDX-FileCopyrightText: 2026 retake
 # SPDX-License-Identifier: Apache-2.0
 
-# The devices are defined in C, in snowy/snowy.c, which spalding.c includes.
-console_uart:
-  symbol: "&snowy_console_uart.uart"
-  include: snowy/snowy_devices.h
+# Devices not in the tree are defined in C, in snowy/snowy.c.
+console_uart: usart3
 qemu_uart:
   symbol: SNOWY_QEMU_UART
   include: snowy/snowy_devices.h
 bt_hci_uart:
-  symbol: "&snowy_bt_hci_port.uart"
+  symbol: "&snowy_bt_hci_port"
   include: snowy/snowy_devices.h
 display:
   symbol: "&snowy_display.disp"

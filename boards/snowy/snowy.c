@@ -10,13 +10,19 @@
 #include <pbl/board/partitions.h>
 #include <pbl/drivers/audio/stm32.h>
 #include <pbl/drivers/backlight/pwm.h>
+#include <pbl/drivers/clk/stm32f4.h>
 #include <pbl/drivers/dma/stm32f4.h>
 #include <pbl/drivers/i2c/stm32.h>
 #include <pbl/drivers/pmic/max14690.h>
 #include <pbl/drivers/pwm/stm32.h>
+#include <pbl/drivers/uart/stm32.h>
+#include <pbl/drivers/uart/stm32_legacy.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/util/size.h>
 #include <pbl/util/units.h>
+
+#include <devicetree/devices.h>
+#include <dt-bindings/mfd/stm32f4-rcc.h>
 
 // The stock bootloader and recovery firmware fix these partitions.
 static_assert(PART_SAFE_FIRMWARE_OFFSET == 0x200000 && PART_SAFE_FIRMWARE_SIZE == PBL_MIB(1),
@@ -29,36 +35,14 @@ static_assert(PART_SYSTEM_RESOURCES_BANK_0_OFFSET == 0x300000, "resources moved"
 static_assert(PART_FILESYSTEM_OFFSET + PART_FILESYSTEM_SIZE == PBL_MIB(16),
               "snowy flash must be 16 MiB");
 
-// Debug UART
-///////////////////////////////////////////////////////////////////////////////
-
-static UARTDeviceState s_dbg_uart_state;
-static UARTDevice DBG_UART_DEVICE = {
-  .state = &s_dbg_uart_state,
-  .periph = USART3,
-  .rcc_apb_periph = RCC_APB1Periph_USART3,
-  .tx = PBL_GPIO(STM32_GPIOC, 10, 0),
-  .rx = PBL_GPIO(STM32_GPIOC, 11, 0),
-  .af = GPIO_AF_USART3,
-  .irqn = PBL_IRQN(USART3),
-};
-PBL_IRQ_CONNECT(USART3, 13, uart_irq_handler, &DBG_UART_DEVICE, 0);
-PBL_UART_STM32_DEFINE(snowy_console_uart, "usart3", 115200, &DBG_UART_DEVICE);
-
 #ifdef CONFIG_QEMU_SERIAL
 // The emulator's Pebble protocol and control channel, on USART2 as in the
 // stock firmware's emulator build. No pins: QEMU connects it directly.
 ///////////////////////////////////////////////////////////////////////////////
 
-static UARTDeviceState s_qemu_uart_state;
-static UARTDevice QEMU_UART_DEVICE = {
-  .state = &s_qemu_uart_state,
-  .periph = USART2,
-  .rcc_apb_periph = RCC_APB1Periph_USART2,
-  .irqn = PBL_IRQN(USART2),
-};
-PBL_IRQ_CONNECT(USART2, 13, uart_irq_handler, &QEMU_UART_DEVICE, 0);
-PBL_UART_STM32_DEFINE(snowy_qemu_uart, "usart2", 230400, &QEMU_UART_DEVICE);
+PBL_UART_STM32_DEFINE(snowy_qemu_uart, "usart2", USART2_BASE, PBL_SOC_IRQN_USART2,
+                      PBL_CLK(&dt_rcc, STM32F4_CLK_ID(0, STM32F4_APB1_CLOCK(UART2))), 230400,
+                      false);
 #endif
 
 #ifdef CONFIG_BT_HCI_UART
@@ -85,10 +69,8 @@ PBL_IRQ_CONNECT(USART1, 12, uart_irq_handler, &BT_HCI_UART_DEVICE, 0);
 
 // The BT_HCI_UART role's port: defined, never registered.
 PBL_UART_STATE_DEFINE(snowy_bt_hci_port);
-const struct pbl_uart_stm32 snowy_bt_hci_port = {
-  .uart = PBL_UART_INIT(snowy_bt_hci_port, "usart1", &pbl_uart_stm32_ops, 115200, nullptr),
-  .dev = &BT_HCI_UART_DEVICE,
-};
+const struct pbl_uart snowy_bt_hci_port =
+    PBL_UART_INIT(snowy_bt_hci_port, "usart1", nullptr, 115200, nullptr);
 #endif
 
 // Display: iCE40LP FPGA on SPI6, see BOARD_CONFIG_DISPLAY
