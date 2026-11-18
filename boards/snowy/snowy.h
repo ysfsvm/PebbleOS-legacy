@@ -8,8 +8,11 @@
 // (spalding), electrically the same but for the round display and the few
 // values below. Pins from the stock board_snowy.c/.h and board_spalding_evt.c/.h.
 
+#include <pbl/drivers/dma/stm32f4.h>
 #include <pbl/services/imu/units.h>
 #include <pbl/soc/stm32/board.h>
+
+#include <devicetree/devices.h>
 
 static const BoardConfigAccel BOARD_CONFIG_ACCEL = {
   .accel_config =
@@ -39,13 +42,13 @@ static const BoardConfigAccel BOARD_CONFIG_ACCEL = {
   },
 };
 
-extern const struct pbl_dma_stm32_stream ICE40LP_TX_DMA;
-
 static const BoardConfigIce40Display BOARD_CONFIG_DISPLAY = {
   .spi = SPI6,
   .spi_rcc = RCC_APB2Periph_SPI6,
   .spi_af = GPIO_AF_SPI6,
-  .tx_dma = &ICE40LP_TX_DMA,
+  // SPI6_TX: DMA2 stream 5, channel 1
+  .tx_dma =
+      PBL_DMA_CHAN(&dt_dma2, 5, 1, PBL_DMA_STM32F4_PRIORITY(PBL_DMA_STM32F4_PRIORITY_VERY_HIGH)),
   .sclk = PBL_GPIO(STM32_GPIOG, 13, 0),
   .mosi = PBL_GPIO(STM32_GPIOG, 14, 0),
   .scs = PBL_GPIO(STM32_GPIOG, 8, PBL_GPIO_ACTIVE_LOW),

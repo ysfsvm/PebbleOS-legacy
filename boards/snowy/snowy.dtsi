@@ -121,12 +121,8 @@
 	};
 };
 
-// The display and the microphone take their streams through the port's DMA
-// helper, which connects the vectors itself.
+// The microphone takes its stream through the port's DMA helper, which
+// connects the vectors itself.
 &dma1 {
-	status = "disabled";
-};
-
-&dma2 {
 	status = "disabled";
 };
