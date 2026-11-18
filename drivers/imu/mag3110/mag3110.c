@@ -189,32 +189,29 @@ static int prv_set_sampling_interval(const struct pbl_mag *mag, uint32_t interva
 
     // The rate can only change in standby.
     ret = prv_enter_standby_mode();
-    if (ret != 0) {
-      return ret;
-    }
-
-    if (rate_hz == 0U) {
-      (void)pbl_intc_disable(&state->irq);
-    } else {
+    if (ret == 0 && rate_hz != 0U) {
       if (state->rate_hz == 0U) {
         ret = prv_write(CTRL_REG2, CTRL_REG2_AUTO_RESET_RAW);
-        if (ret != 0) {
-          return ret;
-        }
-        ret = pbl_intc_enable(&state->irq);
-        if (ret != 0) {
-          return ret;
+        if (ret == 0) {
+          ret = pbl_intc_enable(&state->irq);
         }
       }
+      if (ret == 0) {
+        ret = prv_write(CTRL_REG1, ((rate_hz == 20U) ? CTRL_REG1_ODR_20HZ : CTRL_REG1_ODR_5HZ) |
+                                       CTRL_REG1_ACTIVE);
+      }
+    }
 
-      ret = prv_write(CTRL_REG1, ((rate_hz == 20U) ? CTRL_REG1_ODR_20HZ : CTRL_REG1_ODR_5HZ) |
-                                     CTRL_REG1_ACTIVE);
+    if (ret != 0 || rate_hz == 0U) {
+      // Stopped, or failed on the way: the line is off until the next start.
+      (void)pbl_intc_disable(&state->irq);
+      state->rate_hz = 0U;
       if (ret != 0) {
         return ret;
       }
+    } else {
+      state->rate_hz = rate_hz;
     }
-
-    state->rate_hz = rate_hz;
   }
 
   *actual_us = (rate_hz == 0U) ? 0U : 1000000U / rate_hz;
