@@ -71,7 +71,8 @@ shortest time the hardware watchdog may take: on the STM32F4, 5.5 s for a
 nominal 8.2 s, as the IWDG runs from the LSI (17 to 47 kHz). The default
 report writes a core dump; the firmware overrides it to store the lockup in
 the reboot reason (`RebootReasonCode_HardLockup`) first, which the next
-boot logs.
+boot logs, and to set `BOOT_BIT_SOFTWARE_FAILURE_OCCURRED`, as its other
+crash paths do: the bootloader counts the reset as a failed boot.
 
 It finds an interrupt handler that never returns or that is taken again
 and again, and a thread spinning with the kernel's interrupts locked. It

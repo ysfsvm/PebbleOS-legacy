@@ -4,6 +4,7 @@
 #include <pbl/task_wdt/hardlockup.h>
 #include <pbl/task_wdt/task_wdt.h>
 
+#include <system/bootbits.h>
 #include <system/die.h>
 #include <system/reboot_reason.h>
 
@@ -39,7 +40,8 @@ void pbl_task_wdt_recovered(void) {
 }
 
 #ifdef CONFIG_TASK_WDT_HARDLOCKUP
-// From the detector's interrupt, above the kernel: the reboot reason is in retained registers
+// From the detector's interrupt, above the kernel: the reboot reason and the boot bits are in
+// retained registers, and nothing it interrupted runs again
 void pbl_task_wdt_hardlockup(const struct pbl_task_wdt_hardlockup *lockup) {
   RebootReason reason = {.code = RebootReasonCode_HardLockup};
 
@@ -48,6 +50,10 @@ void pbl_task_wdt_hardlockup(const struct pbl_task_wdt_hardlockup *lockup) {
   reason.hard_lockup.exception = lockup->exception;
   reboot_reason_clear();
   reboot_reason_set(&reason);
+#ifndef CONFIG_MFG
+  // A failure for the bootloader, as the other crash paths
+  boot_bit_set(BOOT_BIT_SOFTWARE_FAILURE_OCCURRED);
+#endif
   reset_with_core_dump(false);
 }
 #endif
