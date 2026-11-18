@@ -56,10 +56,11 @@ callback, backing a single hardware watchdog (`include/pbl/drivers/watchdog.h`).
 
 With `CONFIG_TASK_WDT_HARDLOCKUP`, a timer of the architecture that the
 kernel's interrupt lock does not mask counts the time the CPU spends out of
-deep sleep since the hardware watchdog was last fed. Every hardware watchdog
-driver reports its feeds with `pbl_task_wdt_hardlockup_feed()`, so the
-feeds of long flash erases count too, and the watchdog thread reports the
-ones it skips for a debugger. Past `CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS`
+deep sleep since the watchdog thread last checked its channels. The thread
+starts the detector and feeds it with `pbl_task_wdt_hardlockup_feed()` on
+every check, also when it does not feed the hardware watchdog (for a
+debugger, or a driver that is not up), and every hardware watchdog driver
+reports its own feeds, so the feeds of long flash erases count too. Past `CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS`
 (never sooner, at most an eighth later), which lies between the check
 period and `CONFIG_TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS`, the shortest time
 the hardware watchdog may take (on the STM32F4, 5.5 s for a nominal 8.2 s:

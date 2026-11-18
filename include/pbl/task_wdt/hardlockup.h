@@ -14,7 +14,8 @@
  * spins with the kernel's interrupts locked keep the watchdog thread from running: the hardware
  * watchdog then resets the system without a core dump. With @c CONFIG_TASK_WDT_HARDLOCKUP, a
  * timer of the architecture that the kernel's interrupt lock does not mask counts the time the
- * CPU spends out of deep sleep since the hardware watchdog was last fed. Past
+ * CPU spends out of deep sleep since the watchdog thread last ran or the hardware watchdog was
+ * last fed. Past
  * @c CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS, it reports the interrupted code to
  * pbl_task_wdt_hardlockup(), which by default writes a core dump.
  *
@@ -38,14 +39,14 @@ struct pbl_task_wdt_hardlockup {
 #ifdef CONFIG_TASK_WDT_HARDLOCKUP
 
 /**
- * @brief Note that the hardware watchdog was fed.
+ * @brief Note that the system is not locked up.
  *
- * Hardware watchdog drivers call it from watchdog_feed(), so feeds outside the watchdog thread
- * count too.
+ * The watchdog thread calls it on every check, whether it feeds the hardware watchdog or not.
+ * Hardware watchdog drivers call it from watchdog_feed(), so feeds outside the thread count too.
  */
 void pbl_task_wdt_hardlockup_feed(void);
 
-/** @brief Start the detector, once the hardware watchdog runs. */
+/** @brief Start the detector. The watchdog thread calls it when it starts. */
 void pbl_task_wdt_hardlockup_start(void);
 
 #else
