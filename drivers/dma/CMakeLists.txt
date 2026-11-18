@@ -4,3 +4,4 @@
 pbl_library()
 pbl_library_sources(dma.c)
 pbl_library_sources_ifdef(CONFIG_DMA_SF32LB52 sf32lb52.c)
+pbl_library_sources_ifdef(CONFIG_DMA_STM32F4 stm32f4.c)

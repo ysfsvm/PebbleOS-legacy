@@ -23,4 +23,18 @@ config DMA_SF32LB52_IRQ_PRIO
     help
       Priority of the channel interrupts.
 
+config DMA_STM32F4
+    bool "ST STM32F4 DMA controller"
+    default DT_HAS_ST_STM32_DMA_ENABLED
+    select CLK
+    help
+      The STM32F4 DMA1 and DMA2 controllers.
+
+config DMA_STM32F4_IRQ_PRIO
+    int "Interrupt priority"
+    default 14
+    depends on DMA_STM32F4
+    help
+      Priority of the stream interrupts.
+
 endif # DMA
