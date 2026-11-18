@@ -608,15 +608,16 @@ static int prv_init(const struct pbl_accel *accel) {
     const struct pbl_gpio *gpio = &BOARD_CONFIG_ACCEL.accel_int_gpios[i];
     int ret;
 
-    ret = pbl_gpio_configure(gpio, PBL_GPIO_INPUT);
-    if (ret != 0) {
-      return ret;
-    }
     ret = pbl_gpio_to_irq(gpio, PBL_IRQ_TYPE_EDGE_RISING, &s_irqs[i]);
     if (ret != 0) {
       return ret;
     }
+    // Brings the pin's port up too, which the pin's configuration needs
     ret = pbl_device_init(&s_irqs[i].intc->dev);
+    if (ret != 0) {
+      return ret;
+    }
+    ret = pbl_gpio_configure(gpio, PBL_GPIO_INPUT);
     if (ret != 0) {
       return ret;
     }

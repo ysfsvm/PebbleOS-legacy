@@ -149,17 +149,18 @@ static int prv_init(const struct pbl_mag *mag) {
   struct pbl_irq_spec *irq = &s_dev->state->irq;
   int ret;
 
-  ret = pbl_gpio_configure(&s_dev->int_gpio, PBL_GPIO_INPUT);
-  if (ret != 0) {
-    return ret;
-  }
-
   ret = pbl_gpio_to_irq(&s_dev->int_gpio, PBL_IRQ_TYPE_EDGE_RISING, irq);
   if (ret != 0) {
     return ret;
   }
 
+  // Brings the pin's port up too, which the pin's configuration needs
   ret = pbl_device_init(&irq->intc->dev);
+  if (ret != 0) {
+    return ret;
+  }
+
+  ret = pbl_gpio_configure(&s_dev->int_gpio, PBL_GPIO_INPUT);
   if (ret != 0) {
     return ret;
   }
