@@ -63,7 +63,7 @@ config TASK_WDT_HARDLOCKUP
       leaving the hardware watchdog to reset without one. A timer that
       the interrupt lock does not mask counts the time out of deep sleep
       since the hardware watchdog was last fed; it interrupts the CPU at
-      least eight times per timeout while it is out of deep sleep.
+      least sixteen times per timeout while it is out of deep sleep.
 
       A board that turns it on gives the condition too, as with
       "default y if ARCH_HAS_HARDLOCKUP_DETECTOR": a default set in
@@ -72,12 +72,25 @@ config TASK_WDT_HARDLOCKUP
 config TASK_WDT_HARDLOCKUP_TIMEOUT_MS
     int "Hard lockup timeout in milliseconds"
     depends on TASK_WDT_HARDLOCKUP
+    default 4500 if WATCHDOG_STM32
     default 6000 if WATCHDOG_TIMEOUT_MS < 20000
     default 20000
     help
       Time out of deep sleep without a hardware watchdog feed after which
-      a hard lockup is reported. Above the check and grace periods, below
-      the hardware watchdog's timeout.
+      a hard lockup is reported, never sooner, and at most an eighth
+      later. Above the check and grace periods; with that eighth, below
+      TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS.
+
+config TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS
+    int "Shortest hardware watchdog timeout in milliseconds"
+    depends on TASK_WDT_HARDLOCKUP
+    default 5500 if WATCHDOG_STM32
+    default WATCHDOG_TIMEOUT_MS
+    help
+      The hardware watchdog's timeout with its clock at the fast end of
+      its tolerance; the detector's timeout is checked against it. The
+      STM32F4 IWDG counts 4096 periods of the LSI divided by 64, 8.2 s at
+      the nominal 32 kHz, but the LSI may run at up to 47 kHz: 5.6 s.
 
 module = TASK_WDT
 module-str = Task watchdog

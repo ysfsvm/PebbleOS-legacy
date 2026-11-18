@@ -59,9 +59,11 @@ kernel's interrupt lock does not mask counts the time the CPU spends out of
 deep sleep since the hardware watchdog was last fed. Every hardware watchdog
 driver reports its feeds with `pbl_task_wdt_hardlockup_feed()`, so the
 feeds of long flash erases count too, and the watchdog thread reports the
-ones it skips for a debugger. Past `CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS`,
-which lies between the check period and the hardware watchdog's timeout,
-the detector calls `pbl_task_wdt_hardlockup()` with the interrupted code's
+ones it skips for a debugger. Past `CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS`
+(never sooner, at most an eighth later), which lies between the check
+period and `CONFIG_TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS`, the shortest time
+the hardware watchdog may take (on the STM32F4, 5.5 s for a nominal 8.2 s:
+the IWDG runs from the LSI, 17 to 47 kHz), the detector calls `pbl_task_wdt_hardlockup()` with the interrupted code's
 PC, LR and exception number. The default writes a core dump; the firmware
 overrides it to store the lockup in the reboot reason
 (`RebootReasonCode_HardLockup`) first, which the next boot logs.
@@ -76,8 +78,8 @@ An architecture provides the timer by selecting
 `ARCH_HAS_HARDLOCKUP_DETECTOR` and implementing `pbl/task_wdt/arch.h`. On
 Cortex-M it is SysTick at the most urgent priority, so the detector is not
 available where SysTick is the system timer (the QEMU boards). SysTick
-counts CPU cycles and is capped at 2^24 of them, so its period is an eighth
-of the timeout or less: it interrupts the CPU that often while it is out of
+counts CPU cycles and is capped at 2^24 of them, so its period is a
+sixteenth of the timeout or less: it interrupts the CPU that often while it is out of
 deep sleep.
 
 ## Users

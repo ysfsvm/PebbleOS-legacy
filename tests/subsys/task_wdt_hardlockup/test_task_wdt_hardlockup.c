@@ -6,7 +6,7 @@
 
 #include <clar.h>
 
-#define TIMEOUT_MS 6000U
+#define TIMEOUT_MS 4500U
 // A SysTick capped below the period asked for, as on a 96 MHz Cortex-M4
 #define PERIOD_MS 174U
 
@@ -36,7 +36,7 @@ static void prv_ticks(unsigned int n) {
   }
 }
 
-// Periods before the awake time reaches the timeout
+// Counted periods before the awake time reaches the timeout
 #define PERIODS_TO_TIMEOUT ((TIMEOUT_MS + PERIOD_MS - 1U) / PERIOD_MS)
 
 void test_task_wdt_hardlockup__initialize(void) {
@@ -46,12 +46,13 @@ void test_task_wdt_hardlockup__initialize(void) {
   pbl_task_wdt_hardlockup_start();
 }
 
-void test_task_wdt_hardlockup__asks_for_an_eighth_of_the_timeout(void) {
-  cl_assert_equal_i(s_period_asked, TIMEOUT_MS / 8U);
+void test_task_wdt_hardlockup__asks_for_a_sixteenth_of_the_timeout(void) {
+  cl_assert_equal_i(s_period_asked, TIMEOUT_MS / 16U);
 }
 
 void test_task_wdt_hardlockup__reports_at_the_timeout(void) {
-  prv_ticks(PERIODS_TO_TIMEOUT - 1U);
+  // The first tick after the start may come at once: it does not count
+  prv_ticks(PERIODS_TO_TIMEOUT);
   cl_assert_equal_i(s_reports, 0);
 
   prv_ticks(1U);
@@ -67,10 +68,22 @@ void test_task_wdt_hardlockup__reports_once(void) {
   cl_assert_equal_i(s_reports, 1);
 }
 
-void test_task_wdt_hardlockup__a_feed_restarts_the_count(void) {
-  prv_ticks(PERIODS_TO_TIMEOUT - 1U);
+//! A feed just before a tick: counting that tick as a whole period would report a lockup a
+//! period before the timeout.
+void test_task_wdt_hardlockup__never_reports_early(void) {
+  prv_ticks(5U);
   pbl_task_wdt_hardlockup_feed();
-  prv_ticks(PERIODS_TO_TIMEOUT - 1U);
+  prv_ticks(PERIODS_TO_TIMEOUT);
+  cl_assert_equal_i(s_reports, 0);
+
+  prv_ticks(1U);
+  cl_assert_equal_i(s_reports, 1);
+}
+
+void test_task_wdt_hardlockup__a_feed_restarts_the_count(void) {
+  prv_ticks(PERIODS_TO_TIMEOUT);
+  pbl_task_wdt_hardlockup_feed();
+  prv_ticks(PERIODS_TO_TIMEOUT);
   cl_assert_equal_i(s_reports, 0);
 
   prv_ticks(1U);
