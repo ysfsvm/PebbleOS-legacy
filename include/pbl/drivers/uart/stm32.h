@@ -6,13 +6,12 @@
 #include <stdint.h>
 
 #include <pbl/board.h>
-#include <pbl/drivers/dma/stm32.h>
 #include <pbl/drivers/gpio.h>
 #include <pbl/drivers/uart.h>
 #include <pbl/soc/stm32/cmsis.h>
 
 //! STM32F4 USART. Besides the @ref drivers_uart class, with PBL_UART_STM32_DEFINE(), a port has
-//! the calls below, for the Bluetooth controllers' HCI: interrupt-driven transmission, RX DMA and
+//! the calls below, for the Bluetooth controllers' HCI: interrupt-driven transmission and
 //! one-direction set-ups.
 
 typedef struct UARTRXErrorFlags {
@@ -147,32 +146,6 @@ void uart_write_byte(UARTDevice *dev, uint8_t data);
 uint8_t uart_read_byte(UARTDevice *dev);
 
 /**
- * @brief Start receiving into a circular DMA buffer.
- *
- * The device must have DMA configured. Received bytes are still delivered to the receive
- * handler. Some SoCs require @p buffer and @p length to be aligned to the data cache line.
- *
- * @param dev Device.
- * @param buffer DMA buffer.
- * @param length Size of @p buffer in bytes.
- */
-void uart_start_rx_dma(UARTDevice *dev, void *buffer, uint32_t length);
-
-/**
- * @brief Stop receiving through DMA.
- *
- * @param dev Device.
- */
-void uart_stop_rx_dma(UARTDevice *dev);
-
-/**
- * @brief Discard data pending in the receive DMA buffer.
- *
- * @param dev Device.
- */
-void uart_clear_rx_dma_buffer(UARTDevice *dev);
-
-/**
  * @brief Check whether a received byte is ready to be read.
  *
  * @param dev Device.
@@ -249,12 +222,6 @@ typedef struct UARTDeviceState {
   bool rx_int_enabled;
   /** Transmit interrupt enabled. */
   bool tx_int_enabled;
-  /** Circular RX DMA buffer, or NULL when RX is interrupt driven. */
-  uint8_t *rx_dma_buffer;
-  /** Size of rx_dma_buffer. */
-  uint32_t rx_dma_length;
-  /** Next byte of rx_dma_buffer to hand to the RX handler. */
-  uint32_t rx_dma_index;
   /** The class port wrapping this one, if any. */
   const struct pbl_uart *uart;
 } UARTDeviceState;
@@ -279,8 +246,6 @@ struct UARTDevice {
   uint8_t af;
   /** Interrupt number. */
   int irqn;
-  /** RX DMA stream, or NULL to keep RX interrupt driven. */
-  const struct pbl_dma_stm32_stream *rx_dma;
 };
 
 /* UART interrupt handler, connected with PBL_IRQ_CONNECT() in the board file. */
