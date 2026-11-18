@@ -42,6 +42,7 @@ typedef enum {
   RebootReasonCode_BtCoredump,
   RebootReasonCode_CoreDump, // Core dump initiated without a more specific reason set
   RebootReasonCode_CoreDumpEntryFailed,
+  RebootReasonCode_HardLockup,
 } RebootReasonCode;
 
 typedef struct PBL_PACKED {
@@ -61,6 +62,11 @@ typedef struct PBL_PACKED {
       uint32_t stuck_task_lr;
       uint32_t stuck_task_callback;
     } watchdog; //!< Valid if code == RebootReasonCode_Watchdog
+    struct {
+      uint32_t pc;
+      uint32_t lr;
+      uint32_t exception;
+    } hard_lockup; //!< Valid if code == RebootReasonCode_HardLockup
     struct {
       uint32_t push_lr;
       uint32_t current_event;

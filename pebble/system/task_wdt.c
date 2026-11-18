@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/task_wdt/hardlockup.h>
 #include <pbl/task_wdt/task_wdt.h>
 
 #include <system/die.h>
@@ -36,3 +37,17 @@ void pbl_task_wdt_recovered(void) {
 [[noreturn]] void pbl_task_wdt_expired(void) {
   reset_due_to_software_failure();
 }
+
+#ifdef CONFIG_TASK_WDT_HARDLOCKUP
+// From the detector's interrupt, above the kernel: the reboot reason is in retained registers
+void pbl_task_wdt_hardlockup(const struct pbl_task_wdt_hardlockup *lockup) {
+  RebootReason reason = {.code = RebootReasonCode_HardLockup};
+
+  reason.hard_lockup.pc = lockup->pc;
+  reason.hard_lockup.lr = lockup->lr;
+  reason.hard_lockup.exception = lockup->exception;
+  reboot_reason_clear();
+  reboot_reason_set(&reason);
+  reset_with_core_dump(false);
+}
+#endif
