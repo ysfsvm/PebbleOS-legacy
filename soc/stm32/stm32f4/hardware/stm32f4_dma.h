@@ -1,0 +1,59 @@
+/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#pragma once
+
+#include <pbl/util/bits.h>
+
+/* Interrupt status and flag clear registers: streams 0-3 in the low ones, 4-7 in the high ones */
+#define STM32F4_DMA_LISR_OFFSET  0x00
+#define STM32F4_DMA_HISR_OFFSET  0x04
+#define STM32F4_DMA_LIFCR_OFFSET 0x08
+#define STM32F4_DMA_HIFCR_OFFSET 0x0c
+
+#define STM32F4_DMA_ISR_OFFSET(stream) \
+  ((stream) < 4U ? STM32F4_DMA_LISR_OFFSET : STM32F4_DMA_HISR_OFFSET)
+#define STM32F4_DMA_IFCR_OFFSET(stream) \
+  ((stream) < 4U ? STM32F4_DMA_LIFCR_OFFSET : STM32F4_DMA_HIFCR_OFFSET)
+/* Position of a stream's six flags: 0, 6, 16 and 22 */
+#define STM32F4_DMA_FLAGS_SHIFT(stream) ((((stream) & 2U) << 3) + (((stream) & 1U) * 6U))
+
+#define STM32F4_DMA_FEIF  PBL_BIT(0)
+#define STM32F4_DMA_DMEIF PBL_BIT(2)
+#define STM32F4_DMA_TEIF  PBL_BIT(3)
+#define STM32F4_DMA_HTIF  PBL_BIT(4)
+#define STM32F4_DMA_TCIF  PBL_BIT(5)
+#define STM32F4_DMA_FLAGS \
+  (STM32F4_DMA_FEIF | STM32F4_DMA_DMEIF | STM32F4_DMA_TEIF | STM32F4_DMA_HTIF | STM32F4_DMA_TCIF)
+
+/* Stream registers */
+#define STM32F4_DMA_SXCR_OFFSET(stream)   (0x10 + 0x18 * (stream))
+#define STM32F4_DMA_SXNDTR_OFFSET(stream) (0x14 + 0x18 * (stream))
+#define STM32F4_DMA_SXPAR_OFFSET(stream)  (0x18 + 0x18 * (stream))
+#define STM32F4_DMA_SXM0AR_OFFSET(stream) (0x1c + 0x18 * (stream))
+#define STM32F4_DMA_SXFCR_OFFSET(stream)  (0x24 + 0x18 * (stream))
+
+#define STM32F4_DMA_NUM_STREAMS 8U
+
+/* SxCR */
+#define STM32F4_DMA_SXCR_EN        PBL_BIT(0)
+#define STM32F4_DMA_SXCR_DMEIE     PBL_BIT(1)
+#define STM32F4_DMA_SXCR_TEIE      PBL_BIT(2)
+#define STM32F4_DMA_SXCR_HTIE      PBL_BIT(3)
+#define STM32F4_DMA_SXCR_TCIE      PBL_BIT(4)
+#define STM32F4_DMA_SXCR_DIR_MSK   PBL_GENMASK(7, 6)
+#define STM32F4_DMA_SXCR_DIR_P2M   0U
+#define STM32F4_DMA_SXCR_DIR_M2P   1U
+#define STM32F4_DMA_SXCR_CIRC      PBL_BIT(8)
+#define STM32F4_DMA_SXCR_PINC      PBL_BIT(9)
+#define STM32F4_DMA_SXCR_MINC      PBL_BIT(10)
+#define STM32F4_DMA_SXCR_PSIZE_MSK PBL_GENMASK(12, 11)
+#define STM32F4_DMA_SXCR_MSIZE_MSK PBL_GENMASK(14, 13)
+#define STM32F4_DMA_SXCR_PINCOS    PBL_BIT(15)
+#define STM32F4_DMA_SXCR_PL_MSK    PBL_GENMASK(17, 16)
+#define STM32F4_DMA_SXCR_CHSEL_MSK PBL_GENMASK(27, 25)
+#define STM32F4_DMA_SXCR_IRQS \
+  (STM32F4_DMA_SXCR_DMEIE | STM32F4_DMA_SXCR_TEIE | STM32F4_DMA_SXCR_HTIE | STM32F4_DMA_SXCR_TCIE)
+
+/* SxNDTR */
+#define STM32F4_DMA_SXNDTR_MAX 0xffffU
