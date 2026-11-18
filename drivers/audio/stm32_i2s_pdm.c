@@ -9,8 +9,10 @@
 #include <errno.h>
 
 #include <pbl/drivers/audio/stm32.h>
+#include <pbl/drivers/dma.h>
 #include <pbl/drivers/gpio/stm32.h>
 #include <pbl/drivers/pmic.h>
+#include <pbl/logging/logging.h>
 #include <pbl/soc/stm32/clock.h>
 #include <pbl/soc/stm32/sleep.h>
 #include <pbl/util/misc.h>
@@ -64,16 +66,40 @@ static int prv_i2s_configure(const struct pbl_audio_stm32_i2s_pdm *pdm) {
 }
 
 //! A half of the DMA buffer is full: filter it into the stream. From the DMA interrupt.
-static void prv_dma_handler(void *context, bool is_complete) {
-  const struct pbl_audio_stm32_i2s_pdm *pdm = context;
+static void prv_dma_handler(void *arg, int status) {
+  const struct pbl_audio_stm32_i2s_pdm *pdm = arg;
   struct pbl_audio_stm32_i2s_pdm_state *state = pdm->state;
   const struct pbl_audio *card = pbl_audio_dai_card(&pdm->dai);
   const struct pbl_audio_stream *stream = &card->state->stream;
-  uint16_t *raw = state->in_buffer[is_complete ? 1 : 0];
+  size_t residue;
+  uint16_t *raw;
+  uint8_t half;
 
   if (!state->running) {
     return;
   }
+
+  // The stream stopped itself; the rest is released by prv_stop().
+  if (status != 0) {
+    state->running = false;
+    I2S_Cmd(pdm->spi, DISABLE);
+    SPI_I2S_DMACmd(pdm->spi, SPI_I2S_DMAReq_Rx, DISABLE);
+    PBL_LOG_WRN("Microphone DMA failed: %d", status);
+    return;
+  }
+
+  // The stream is past the middle of the ring when its first half has just ended.
+  if (pbl_dma_tx_status(pdm->dma, &residue) != 0 || residue == 0U) {
+    return;
+  }
+  half = residue > sizeof(state->in_buffer[0]) ? 1U : 0U;
+  // Both halves ended before this interrupt ran: the other one is being overwritten.
+  if (half == state->half) {
+    pbl_audio_report_xrun(card);
+    return;
+  }
+  state->half = half;
+  raw = state->in_buffer[half];
 
   // The filter takes the bytes the other way round.
   for (size_t i = 0; i < PBL_AUDIO_STM32_I2S_PDM_HALF_WORDS; i++) {
@@ -104,9 +130,23 @@ static void prv_dma_handler(void *context, bool is_complete) {
 
 static int prv_init(const struct pbl_audio_dai *dai) {
   const struct pbl_audio_stm32_i2s_pdm *pdm = prv_dev(dai);
+  const struct pbl_dma_slave_config cfg = {
+    .src_addr = (uintptr_t)&pdm->spi->DR,
+    .src_addr_width = PBL_DMA_SLAVE_BUSWIDTH_2_BYTES,
+  };
+  int ret;
 
   if (pbl_device_init(&pdm->ck.port->dev) != 0 || pbl_device_init(&pdm->sd.port->dev) != 0) {
     return -ENODEV;
+  }
+
+  ret = pbl_device_init(&pdm->dma->ctrl->dev);
+  if (ret != 0) {
+    return ret;
+  }
+  ret = pbl_dma_slave_config(pdm->dma, &cfg);
+  if (ret != 0) {
+    return ret;
   }
 
   prv_gpio_disable(pdm);
@@ -144,6 +184,7 @@ static int prv_start(const struct pbl_audio_dai *dai, const struct pbl_audio_str
     .MaxVolume = 64,
   };
   Open_PDM_Filter_Init(&state->filter);
+  state->half = 1U;
   state->period = 0U;
   state->frames = 0U;
   state->settle = SETTLE_SAMPLES;
@@ -162,29 +203,36 @@ static int prv_start(const struct pbl_audio_dai *dai, const struct pbl_audio_str
   soc_stm32_clock_set(SOC_STM32_APB1, pdm->spi_rcc, true);
   ret = prv_i2s_configure(pdm);
   if (ret != 0) {
-    soc_stm32_clock_set(SOC_STM32_APB1, pdm->spi_rcc, false);
-    RCC_PLLI2SCmd(DISABLE);
-    prv_gpio_disable(pdm);
-    soc_stm32_stop_release();
-    set_ldo3_power_state(false);
-    return ret;
+    goto err_off;
+  }
+
+  state->running = true;
+  ret = pbl_dma_prep_dma_cyclic(pdm->dma, state->in_buffer, sizeof(state->in_buffer),
+                                sizeof(state->in_buffer[0]), PBL_DMA_DEV_TO_MEM, prv_dma_handler,
+                                (void *)pdm);
+  if (ret != 0) {
+    state->running = false;
+    goto err_off;
   }
   SPI_I2S_DMACmd(pdm->spi, SPI_I2S_DMAReq_Rx, ENABLE);
   I2S_Cmd(pdm->spi, ENABLE);
 
-  state->running = true;
-  pbl_dma_stm32_start_circular_u16(pdm->dma, &pdm->spi->DR, state->in_buffer,
-                                   sizeof(state->in_buffer), DMA_Priority_High, prv_dma_handler,
-                                   (void *)pdm);
-
   return 0;
+
+err_off:
+  soc_stm32_clock_set(SOC_STM32_APB1, pdm->spi_rcc, false);
+  RCC_PLLI2SCmd(DISABLE);
+  prv_gpio_disable(pdm);
+  soc_stm32_stop_release();
+  set_ldo3_power_state(false);
+  return ret;
 }
 
 static int prv_stop(const struct pbl_audio_dai *dai) {
   const struct pbl_audio_stm32_i2s_pdm *pdm = prv_dev(dai);
 
   pdm->state->running = false;
-  pbl_dma_stm32_stop(pdm->dma);
+  (void)pbl_dma_terminate(pdm->dma);
   I2S_Cmd(pdm->spi, DISABLE);
   soc_stm32_clock_set(SOC_STM32_APB1, pdm->spi_rcc, false);
   RCC_PLLI2SCmd(DISABLE);

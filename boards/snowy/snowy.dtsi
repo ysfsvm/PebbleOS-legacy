@@ -123,9 +123,3 @@
 		};
 	};
 };
-
-// The microphone takes its stream through the port's DMA helper, which
-// connects the vectors itself.
-&dma1 {
-	status = "disabled";
-};
