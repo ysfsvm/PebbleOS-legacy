@@ -54,6 +54,31 @@ config TASK_WDT_THREAD_STACK_SIZE
       The expiry path logs synchronously and runs the channel callbacks
       on this stack; the QEMU build uses about 700 bytes of it there.
 
+config TASK_WDT_HARDLOCKUP
+    bool "Hard lockup detector"
+    depends on ARCH_HAS_HARDLOCKUP_DETECTOR && WATCHDOG
+    help
+      Write a core dump when an interrupt handler or a thread with the
+      kernel's interrupts locked starves the watchdog thread, instead of
+      leaving the hardware watchdog to reset without one. A timer that
+      the interrupt lock does not mask counts the time out of deep sleep
+      since the hardware watchdog was last fed; it interrupts the CPU at
+      least eight times per timeout while it is out of deep sleep.
+
+      A board that turns it on gives the condition too, as with
+      "default y if ARCH_HAS_HARDLOCKUP_DETECTOR": a default set in
+      another file is not bound by the dependencies above.
+
+config TASK_WDT_HARDLOCKUP_TIMEOUT_MS
+    int "Hard lockup timeout in milliseconds"
+    depends on TASK_WDT_HARDLOCKUP
+    default 6000 if WATCHDOG_TIMEOUT_MS < 20000
+    default 20000
+    help
+      Time out of deep sleep without a hardware watchdog feed after which
+      a hard lockup is reported. Above the check and grace periods, below
+      the hardware watchdog's timeout.
+
 module = TASK_WDT
 module-str = Task watchdog
 source "subsys/logging/Kconfig.template.log_level"

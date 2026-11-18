@@ -18,6 +18,7 @@
 #include <pbl/kernel/types.h>
 #include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
+#include <pbl/task_wdt/hardlockup.h>
 #include <pbl/task_wdt/task_wdt.h>
 #include <pbl/util/math.h>
 
@@ -231,8 +232,9 @@ static bool prv_debugger_attached(void) {
 
 static void prv_feed_hw(bool debugger) {
 #ifdef CONFIG_WATCHDOG_RUNS_WHILE_HALTED
-  // Stopped for the debugger: feeding restarts it
+  // Stopped for the debugger: feeding restarts it. The thread runs, so there is no lockup.
   if (debugger) {
+    pbl_task_wdt_hardlockup_feed();
     return;
   }
 #else
@@ -302,6 +304,7 @@ void pbl_task_wdt_init(void) {
     .stack_size = sizeof(s_stack),
   };
   PBL_ASSERTN(pbl_thread_create(&s_thread, &attr) == 0);
+  pbl_task_wdt_hardlockup_start();
 }
 
 int pbl_task_wdt_add(struct pbl_thread *thread, uint32_t timeout_ms,
