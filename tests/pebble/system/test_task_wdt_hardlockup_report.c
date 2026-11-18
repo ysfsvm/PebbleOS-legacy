@@ -95,3 +95,15 @@ void test_task_wdt_hardlockup_report__replaces_a_task_watchdog_stall(void) {
   cl_assert_equal_i(s_reason.code, RebootReasonCode_HardLockup);
   cl_assert_equal_i(s_reason.hard_lockup.pc, 0x08001234U);
 }
+
+//! An assert that then hung with interrupts locked: its reason says more than the hang's PC.
+void test_task_wdt_hardlockup_report__keeps_an_earlier_reason(void) {
+  s_reason.code = RebootReasonCode_Assert;
+  s_reason.extra.value = 0x08004444U;
+
+  prv_report();
+
+  cl_assert_equal_i(s_dumps, 1);
+  cl_assert_equal_i(s_reason.code, RebootReasonCode_Assert);
+  cl_assert_equal_i(s_reason.extra.value, 0x08004444U);
+}

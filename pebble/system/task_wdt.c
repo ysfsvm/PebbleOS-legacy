@@ -48,8 +48,11 @@ void pbl_task_wdt_hardlockup(const struct pbl_task_wdt_hardlockup *lockup) {
   reason.hard_lockup.pc = lockup->pc;
   reason.hard_lockup.lr = lockup->lr;
   reason.hard_lockup.exception = lockup->exception;
-  reboot_reason_clear();
-  reboot_reason_set(&reason);
+  // A reason stored before the lockup, as an assert that then hung, says more
+  if (prv_reboot_reason_is_ours()) {
+    reboot_reason_clear();
+    reboot_reason_set(&reason);
+  }
 #ifndef CONFIG_MFG
   // A failure for the bootloader, as the other crash paths
   boot_bit_set(BOOT_BIT_SOFTWARE_FAILURE_OCCURRED);
