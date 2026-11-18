@@ -159,3 +159,10 @@ config LEGACY_HARDLOCKUP_TEST
       queue with the kernel's interrupts locked, which starves the
       watchdog thread, unless an unread core dump is stored: the detector
       writes one, so the watch then boots normally until it is read.
+
+      It does not lock up on the boot after a crash or a hardware
+      watchdog reset, whatever the detector did, nor while a firmware
+      update runs. Each lockup, and a hardware watchdog reset if the
+      detector fails, is a failed boot for the stock bootloader, which
+      starts the recovery firmware at the third without 15 minutes of
+      running in between: let the watch run 15 minutes after a test.
