@@ -3,7 +3,9 @@
 
 //! The hard lockup detector's timer on Cortex-M: SysTick, at the most urgent priority, so that
 //! the kernel's interrupt lock (BASEPRI) and every interrupt handler leave it running. It counts
-//! CPU cycles and stops in deep sleep. The system timer must not be SysTick.
+//! CPU cycles, stops in deep sleep, and is stopped while the CPU idles, which it would otherwise
+//! wake up every period (and make each STOP mode entry it lands in return at once). The system
+//! timer must not be SysTick.
 
 #include "arm_cpu.h"
 
@@ -50,6 +52,29 @@ uint32_t arch_hardlockup_start(uint32_t period_ms) {
 
   const uint32_t started_ms = (uint32_t)(cycles * 1000U / hz);
   return started_ms > 0U ? started_ms : 1U;
+}
+
+static bool s_idle_stopped;
+
+// With PRIMASK set, so SysTick cannot be taken in between
+void arm_hardlockup_idle_enter(void) {
+  const uint32_t csr = arch_readl(SYST_CSR);
+
+  if ((csr & SYST_CSR_ENABLE) == 0U) {
+    return;
+  }
+  arch_writel(csr & ~SYST_CSR_ENABLE, SYST_CSR);
+  // A period that ended just now would end the wait at once
+  arch_writel(ARM_SCB_ICSR_PENDSTCLR, ARM_SCB_ICSR);
+  s_idle_stopped = true;
+}
+
+void arm_hardlockup_idle_exit(void) {
+  if (!s_idle_stopped) {
+    return;
+  }
+  s_idle_stopped = false;
+  arch_writel(arch_readl(SYST_CSR) | SYST_CSR_ENABLE, SYST_CSR);
 }
 
 PBL_EXTERNALLY_VISIBLE void arch_hardlockup_tick_c(const uint32_t *frame) {

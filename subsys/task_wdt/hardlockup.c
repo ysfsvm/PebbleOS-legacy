@@ -17,7 +17,7 @@
 
 // The timer's period is at most a sixteenth of the timeout. The first tick after a feed is not
 // counted, as it may come at once: a lockup is reported after TIMEOUT_MS to TIMEOUT_MS plus two
-// periods out of deep sleep without a feed, never before.
+// periods of running without a feed, never before.
 #define PERIOD_DIV 16U
 #define LATEST_MS  (TIMEOUT_MS + 2U * (TIMEOUT_MS / PERIOD_DIV))
 

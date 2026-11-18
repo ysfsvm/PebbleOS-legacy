@@ -55,24 +55,28 @@ callback, backing a single hardware watchdog (`include/pbl/drivers/watchdog.h`).
 ## Hard lockup detector
 
 With `CONFIG_TASK_WDT_HARDLOCKUP`, a timer of the architecture that the
-kernel's interrupt lock does not mask counts the time the CPU spends out of
-deep sleep since the watchdog thread last checked its channels. The thread
-starts the detector and feeds it with `pbl_task_wdt_hardlockup_feed()` on
-every check, also when it does not feed the hardware watchdog (for a
-debugger, or a driver that is not up), and every hardware watchdog driver
-reports its own feeds, so the feeds of long flash erases count too. Past `CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS`
-(never sooner, at most an eighth later), which lies between the check
-period and `CONFIG_TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS`, the shortest time
-the hardware watchdog may take (on the STM32F4, 5.5 s for a nominal 8.2 s:
-the IWDG runs from the LSI, 17 to 47 kHz), the detector calls `pbl_task_wdt_hardlockup()` with the interrupted code's
-PC, LR and exception number. The default writes a core dump; the firmware
-overrides it to store the lockup in the reboot reason
-(`RebootReasonCode_HardLockup`) first, which the next boot logs.
+kernel's interrupt lock does not mask counts the time the CPU runs, outside
+idle waits and deep sleep, since the watchdog thread last checked its
+channels. The thread starts the detector and feeds it with
+`pbl_task_wdt_hardlockup_feed()` on every check, also when it does not feed
+the hardware watchdog (for a debugger, or a driver that is not up), and
+every hardware watchdog driver reports its own feeds, so the feeds of long
+flash erases count too.
+
+Past `CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS` (never sooner, at most an
+eighth later), the detector calls `pbl_task_wdt_hardlockup()` with the
+interrupted code's PC, LR and exception number. The timeout lies between
+the check period and `CONFIG_TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS`, the
+shortest time the hardware watchdog may take: on the STM32F4, 5.5 s for a
+nominal 8.2 s, as the IWDG runs from the LSI (17 to 47 kHz). The default
+report writes a core dump; the firmware overrides it to store the lockup in
+the reboot reason (`RebootReasonCode_HardLockup`) first, which the next
+boot logs.
 
 It finds an interrupt handler that never returns or that is taken again
 and again, and a thread spinning with the kernel's interrupts locked. It
 does not see code spinning with every interrupt masked, nor a system that
-never wakes up from deep sleep: its timer stops there, and the hardware
+idles or sleeps and never wakes up: its timer stops there, and the hardware
 watchdog still resets those without a dump.
 
 An architecture provides the timer by selecting
@@ -80,8 +84,9 @@ An architecture provides the timer by selecting
 Cortex-M it is SysTick at the most urgent priority, so the detector is not
 available where SysTick is the system timer (the QEMU boards). SysTick
 counts CPU cycles and is capped at 2^24 of them, so its period is a
-sixteenth of the timeout or less: it interrupts the CPU that often while it is out of
-deep sleep.
+sixteenth of the timeout or less: it interrupts the CPU that often while it
+runs. It is stopped around the idle wait, which it would otherwise end
+every period.
 
 ## Users
 

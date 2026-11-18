@@ -15,8 +15,8 @@
 /**
  * @brief Start a periodic timer interrupt that the kernel's interrupt lock does not mask.
  *
- * It may stop in deep sleep. Each period, its interrupt calls pbl_task_wdt_hardlockup_tick()
- * with the code it interrupted.
+ * It may stop while the CPU idles or is in deep sleep. Each period, its interrupt calls
+ * pbl_task_wdt_hardlockup_tick() with the code it interrupted.
  *
  * @param period_ms Period wanted, in milliseconds; the timer may only reach a shorter one.
  * @return The period started, in milliseconds, at least 1.

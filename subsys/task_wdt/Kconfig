@@ -61,9 +61,10 @@ config TASK_WDT_HARDLOCKUP
       Write a core dump when an interrupt handler or a thread with the
       kernel's interrupts locked starves the watchdog thread, instead of
       leaving the hardware watchdog to reset without one. A timer that
-      the interrupt lock does not mask counts the time out of deep sleep
-      since the hardware watchdog was last fed; it interrupts the CPU at
-      least sixteen times per timeout while it is out of deep sleep.
+      the interrupt lock does not mask counts the time the CPU runs,
+      outside idle waits and deep sleep, since the watchdog thread last
+      ran; it interrupts the CPU at least sixteen times per timeout while
+      it runs.
 
       A board that turns it on gives the condition too, as with
       "default y if ARCH_HAS_HARDLOCKUP_DETECTOR": a default set in
@@ -76,7 +77,7 @@ config TASK_WDT_HARDLOCKUP_TIMEOUT_MS
     default 6000 if WATCHDOG_TIMEOUT_MS < 20000
     default 20000
     help
-      Time out of deep sleep without a hardware watchdog feed after which
+      Time the CPU runs without the watchdog thread running after which
       a hard lockup is reported, never sooner, and at most an eighth
       later. Above the check and grace periods; with that eighth, below
       TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS.

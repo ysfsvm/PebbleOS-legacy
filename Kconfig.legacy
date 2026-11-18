@@ -149,7 +149,7 @@ config LEGACY_DEBUG
     help
       Diagnostics for test builds, kept out of everyday ones: the boards
       turn them on with this option, as the hard lockup detector, whose
-      timer interrupts the CPU while it is out of deep sleep.
+      timer interrupts the CPU while it runs.
 
 config LEGACY_HARDLOCKUP_TEST
     bool "Lock up a minute after boot (test of the hard lockup detector)"
