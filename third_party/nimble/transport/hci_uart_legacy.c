@@ -15,7 +15,7 @@
 #include <pbl/bluetooth/hci_uart.h>
 #include <pbl/board.h>
 #include <pbl/drivers/uart.h>
-#include <pbl/drivers/uart/stm32.h>
+#include <pbl/drivers/uart/stm32_legacy.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/fatal.h>

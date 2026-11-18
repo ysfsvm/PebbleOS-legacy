@@ -5,6 +5,7 @@
 // are defined in C (snowy.c).
 
 #include "st/stm32f439.dtsi"
+#include "snowy-pinctrl.dtsi"
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
@@ -122,4 +123,20 @@
 			};
 		};
 	};
+};
+
+// Debug console, on the test pads
+&usart3 {
+	pinctrl-0 = <&usart3_default>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+// CC2564 HCI, with flow control. The legacy HCI transport drives it through its own USART calls
+// (snowy.c), not through this node, which stays disabled until the transport takes a serial port.
+&usart1 {
+	pinctrl-0 = <&usart1_default>;
+	pinctrl-names = "default";
+	uart-has-rtscts;
+	status = "disabled";
 };

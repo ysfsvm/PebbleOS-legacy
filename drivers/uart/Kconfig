@@ -42,10 +42,28 @@ config UART_SF32LB_IRQ_PRIO
 
 config UART_STM32
     bool "ST STM32 USART"
-    default y if SOC_STM32F4
-    select HAL_STM32
+    default DT_HAS_ST_STM32_UART_ENABLED
+    depends on SOC_STM32F4
+    select CLK
+    select PINCTRL
     help
       Support for the STM32F4 USART.
+
+config UART_STM32_IRQ_PRIO
+    int "Interrupt priority"
+    default 13
+    depends on UART_STM32
+    help
+      Priority of the port interrupts.
+
+config UART_STM32_LEGACY
+    bool
+    default y if BT_HCI_UART_LEGACY
+    depends on SOC_STM32F4
+    select HAL_STM32
+    help
+      The USART calls the legacy HCI transport drives its port with
+      (pbl/drivers/uart/stm32_legacy.h), in place of the class.
 
 config UART_QEMU
     bool "QEMU Simple UART"

@@ -53,9 +53,39 @@
 		interrupt-parent = <&nvic>;
 		ranges;
 
+		usart2: serial@40004400 {
+			compatible = "st,stm32-uart";
+			reg = <0x40004400 0x400>;
+			interrupts = <38>;
+			clocks = <&rcc 0 STM32F4_APB1_CLOCK(UART2)>;
+			status = "disabled";
+		};
+
+		usart3: serial@40004800 {
+			compatible = "st,stm32-uart";
+			reg = <0x40004800 0x400>;
+			interrupts = <39>;
+			clocks = <&rcc 0 STM32F4_APB1_CLOCK(UART3)>;
+			status = "disabled";
+			dmas = <&dma1 1 4 0x400 0x0>,
+			       <&dma1 3 4 0x400 0x0>;
+			dma-names = "rx", "tx";
+		};
+
 		pwrcfg: power-config@40007000 {
 			compatible = "st,stm32-power-config", "syscon";
 			reg = <0x40007000 0x400>;
+		};
+
+		usart1: serial@40011000 {
+			compatible = "st,stm32-uart";
+			reg = <0x40011000 0x400>;
+			interrupts = <37>;
+			clocks = <&rcc 0 STM32F4_APB2_CLOCK(USART1)>;
+			status = "disabled";
+			dmas = <&dma2 2 4 0x400 0x0>,
+			       <&dma2 7 4 0x400 0x0>;
+			dma-names = "rx", "tx";
 		};
 
 		syscfg: syscon@40013800 {
