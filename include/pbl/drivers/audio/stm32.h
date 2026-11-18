@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include <pbl/drivers/audio.h>
-#include <pbl/drivers/dma/stm32.h>
+#include <pbl/drivers/dma.h>
 #include <pbl/drivers/gpio.h>
 #include <pbl/soc/stm32/cmsis.h>
 
@@ -30,6 +30,8 @@
 struct pbl_audio_stm32_i2s_pdm_state {
   //! Raw PDM, two halves filled by circular DMA. In SRAM, which DMA reaches.
   uint16_t in_buffer[2][PBL_AUDIO_STM32_I2S_PDM_HALF_WORDS];
+  //! Half of in_buffer filtered last.
+  uint8_t half;
   TPDMFilter_InitStruct filter;
   //! Period being filled and frames already in it.
   uint8_t period;
@@ -49,8 +51,8 @@ struct pbl_audio_stm32_i2s_pdm {
   SPI_TypeDef *spi;
   /** Its RCC_APB1Periph_SPIx enable bit. */
   uint32_t spi_rcc;
-  /** RX DMA stream. */
-  const struct pbl_dma_stm32_stream *dma;
+  /** RX DMA channel. */
+  const struct pbl_dma_chan *dma;
   /** Clock and data pins, and their alternate function. */
   struct pbl_gpio ck;
   struct pbl_gpio sd;
@@ -72,7 +74,7 @@ extern const struct pbl_audio_dai_ops pbl_audio_stm32_i2s_pdm_ops;
  * @param _name Device name.
  * @param _spi SPI in I2S mode.
  * @param _spi_rcc Its RCC_APB1Periph_SPIx enable bit.
- * @param _dma RX DMA stream.
+ * @param _dma RX DMA channel.
  * @param _ck Clock pin, from PBL_GPIO().
  * @param _sd Data pin, from PBL_GPIO().
  * @param _af Alternate function of both pins (GPIO_AF_SPIx).
