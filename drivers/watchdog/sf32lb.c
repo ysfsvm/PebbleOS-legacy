@@ -9,6 +9,7 @@
 #include <pbl/drivers/watchdog/sf32lb.h>
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/mmio.h>
+#include <pbl/task_wdt/hardlockup.h>
 #include <pbl/util/misc.h>
 
 #include <devicetree/regs.h>
@@ -91,6 +92,7 @@ void watchdog_feed(void) {
   }
 
   prv_wdt_command(WDT_CCR_START, true);
+  pbl_task_wdt_hardlockup_feed();
 }
 
 bool watchdog_check_reset_flag(void) {
