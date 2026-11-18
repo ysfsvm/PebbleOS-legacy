@@ -82,3 +82,9 @@ config QEMU_SERIAL
 # /emoji pack file when installed (resource_map.json declares the store).
 config LEGACY_EMOJI_PACK
     default y
+
+# Debug builds write a core dump, with the place, when an interrupt handler or a locked kernel
+# starves the task watchdog, instead of a silent hardware watchdog reset. Not on the emulator's
+# SysTick build.
+config TASK_WDT_HARDLOCKUP
+    default y if LEGACY_DEBUG && ARCH_HAS_HARDLOCKUP_DETECTOR && WATCHDOG
