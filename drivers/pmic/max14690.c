@@ -239,9 +239,11 @@ int pbl_max14690_init(const struct pbl_device *dev) {
   s_present = true;
 
   prv_config_charger();
+  // Without its interrupt the PMIC still runs, and still powers the display: only charger
+  // connection events are lost.
   const int ret = prv_configure_interrupts();
   if (ret != 0) {
-    return ret;
+    PBL_LOG_ERR("No MAX14690 interrupt (%d): no charger events", ret);
   }
   // LDO2 (3.2 V) powers the display FPGA.
   if (!prv_set_ldo(PmicRegisters_LDO2_CONFIG, true)) {
