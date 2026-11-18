@@ -91,19 +91,8 @@ const struct pbl_uart_stm32 snowy_bt_hci_port = {
 };
 #endif
 
-// Display: SPI6_TX on DMA2 stream 5, channel 1
+// Display: iCE40LP FPGA on SPI6, see BOARD_CONFIG_DISPLAY
 ///////////////////////////////////////////////////////////////////////////////
-
-static struct pbl_dma_stm32_state s_ice40lp_tx_dma_state;
-const struct pbl_dma_stm32_stream ICE40LP_TX_DMA = {
-  .state = &s_ice40lp_tx_dma_state,
-  .stream = DMA2_Stream5,
-  .channel = DMA_Channel_1,
-  .rcc = RCC_AHB1Periph_DMA2,
-  .it_ht = DMA_IT_HTIF5,
-  .it_tc = DMA_IT_TCIF5,
-  .irqn = PBL_IRQN(DMA2_Stream5),
-};
 
 #ifdef CONFIG_BOARD_SPALDING
 // Pixels masked at each end of the top half's rows, from the stock spalding framebuffer layout,
@@ -120,9 +109,6 @@ PBL_DISPLAY_ICE40LP_DEFINE(snowy_display, "display", CONFIG_PLATFORM_DISPLAY_WID
 PBL_DISPLAY_ICE40LP_DEFINE(snowy_display, "display", CONFIG_PLATFORM_DISPLAY_WIDTH,
                            CONFIG_PLATFORM_DISPLAY_HEIGHT);
 #endif
-// Same priority as the EXTI handlers, so the DMA handler cannot preempt the
-// BUSY one.
-PBL_IRQ_CONNECT(DMA2_Stream5, 14, pbl_dma_stm32_irq_handler, &ICE40LP_TX_DMA, 0);
 
 // I2C1: PMIC and compass
 ///////////////////////////////////////////////////////////////////////////////
