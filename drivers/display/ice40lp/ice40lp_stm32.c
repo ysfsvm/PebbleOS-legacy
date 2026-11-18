@@ -103,6 +103,8 @@ static void prv_busy_isr(void *arg);
 //! Falling edges of BUSY (the FPGA can take the next line) and of CDONE.
 static struct pbl_irq_spec s_busy_irq;
 static struct pbl_irq_spec s_cdone_irq;
+//! Without BUSY's interrupt, BUSY is polled.
+static bool s_busy_irq_ok;
 
 static int prv_request_irq(const struct pbl_gpio *gpio, pbl_intc_handler_t handler,
                            struct pbl_irq_spec *irq) {
@@ -199,7 +201,8 @@ static volatile bool s_waiting_frame;
 
 //! Like prv_wait_not_busy(), but a task sleeps until BUSY's falling edge instead of polling.
 static bool prv_wait_not_busy_edge(void) {
-  if (prv_busy() && pbl_kernel_is_running() && !pbl_in_isr() && !pbl_irq_is_locked()) {
+  if (s_busy_irq_ok && prv_busy() && pbl_kernel_is_running() && !pbl_in_isr() &&
+      !pbl_irq_is_locked()) {
     (void)pbl_sem_take(&s_busy_fell, PBL_NO_WAIT);
     // STOP mode would delay the wake-up.
     soc_stm32_stop_block();
@@ -413,9 +416,13 @@ static int prv_init(const struct pbl_display *disp) {
   pbl_gpio_configure(&cfg->rail_6v6, PBL_GPIO_OUTPUT);
   pbl_gpio_configure(&cfg->rail_4v5, PBL_GPIO_OUTPUT);
 
+  // Without its interrupts the panel still runs, rather than staying dark: BUSY is polled and
+  // CDONE checked before each frame.
   int ret = prv_request_irq(&cfg->busy, prv_busy_isr, &s_busy_irq);
-  if (ret != 0) {
-    return ret;
+  if (ret == 0) {
+    s_busy_irq_ok = true;
+  } else {
+    PBL_LOG_ERR("No BUSY interrupt (%d): polling BUSY", ret);
   }
 
   prv_show_boot_splash();
@@ -424,11 +431,14 @@ static int prv_init(const struct pbl_display *disp) {
 
   // As the stock firmware: a falling CDONE means the configuration was lost.
   ret = prv_request_irq(&cfg->cdone, prv_cdone_isr, &s_cdone_irq);
+  if (ret == 0) {
+    ret = pbl_intc_enable(&s_cdone_irq);
+  }
   if (ret != 0) {
-    return ret;
+    PBL_LOG_ERR("No CDONE interrupt (%d)", ret);
   }
 
-  return pbl_intc_enable(&s_cdone_irq);
+  return 0;
 }
 
 #ifdef CONFIG_DISPLAY_ICE40LP_ROUND
@@ -494,7 +504,9 @@ static LINE_OPTIMIZE void prv_get_line(const uint8_t *fb, int index, uint8_t *li
 static void prv_end_frame(void) {
   const BoardConfigIce40Display *cfg = &BOARD_CONFIG_DISPLAY;
 
-  (void)pbl_intc_disable(&s_busy_irq);
+  if (s_busy_irq_ok) {
+    (void)pbl_intc_disable(&s_busy_irq);
+  }
   s_waiting_busy = false;
   // The last byte may still be shifting out.
   while (!(cfg->spi->SR & SPI_SR_TXE)) {
@@ -548,7 +560,12 @@ static void prv_dma_done(void *context, bool is_complete) {
     pbl_display_complete(s_disp, 0);
     return;
   }
-  if (prv_busy()) {
+  if (prv_busy() && !s_busy_irq_ok) {
+    // A BUSY stuck high is left to the frame timeout.
+    if (!prv_wait_not_busy()) {
+      return;
+    }
+  } else if (prv_busy()) {
     // Arm before looking again, so the falling edge cannot be missed.
     s_waiting_busy = true;
     (void)pbl_intc_enable(&s_busy_irq);
