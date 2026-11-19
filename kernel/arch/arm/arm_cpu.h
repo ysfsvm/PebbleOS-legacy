@@ -11,6 +11,7 @@
 
 // System control block
 #define ARM_SCB_ICSR                 0xE000ED04UL
+#define ARM_SCB_ICSR_PENDSTCLR       (1UL << 25)
 #define ARM_SCB_ICSR_PENDSVSET       (1UL << 28)
 #define ARM_SCB_ICSR_NMIPENDSET      (1UL << 31)
 #define ARM_SCB_VTOR                 0xE000ED08UL
@@ -167,3 +168,9 @@ static PBL_ALWAYS_INLINE void arm_irq_enable(void) {
 static PBL_ALWAYS_INLINE void arm_shpr_set(uint32_t exc, uint8_t prio) {
   arch_writeb(prio, ARM_SCB_SHPR(exc));
 }
+
+#ifdef CONFIG_TASK_WDT_HARDLOCKUP
+// Hard lockup SysTick, stopped while idle
+void arm_hardlockup_idle_enter(void);
+void arm_hardlockup_idle_exit(void);
+#endif

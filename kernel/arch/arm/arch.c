@@ -490,7 +490,13 @@ void arch_idle(pbl_tick_t max_ticks) {
   // PRIMASK: an interrupt still wakes the CPU up, but only runs once the tick is back.
   arm_irq_disable();
   if (sched_idle_confirm()) {
+#ifdef CONFIG_TASK_WDT_HARDLOCKUP
+    arm_hardlockup_idle_enter();
+#endif
     timekeeping_idle(max_ticks);
+#ifdef CONFIG_TASK_WDT_HARDLOCKUP
+    arm_hardlockup_idle_exit();
+#endif
   }
   arm_irq_enable();
 }
