@@ -68,3 +68,7 @@ config BATTERY_WARNING_FIRST_PERCENT
 
 config BATTERY_WARNING_SECOND_PERCENT
     default 20
+
+# As on snowy: core dumps for hard lockups in debug builds.
+config TASK_WDT_HARDLOCKUP
+    default y if LEGACY_DEBUG && ARCH_HAS_HARDLOCKUP_DETECTOR && WATCHDOG

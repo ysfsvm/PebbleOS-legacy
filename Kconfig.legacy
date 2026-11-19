@@ -144,6 +144,13 @@ config BT_LE_IDLE_INTERVAL_MAX
     default 36 if LEGACY_WATCH
     default 48
 
+config LEGACY_DEBUG
+    bool "Debug build: diagnostics that cost battery, time or memory"
+    help
+      Diagnostics for test builds, kept out of everyday ones: the boards
+      turn them on with this option, as the hard lockup detector, whose
+      timer interrupts the CPU while it runs.
+
 config LEGACY_HARDLOCKUP_TEST
     bool "Lock up a minute after boot (test of the hard lockup detector)"
     depends on TASK_WDT_HARDLOCKUP && COREDUMP && SOC_STM32F4
