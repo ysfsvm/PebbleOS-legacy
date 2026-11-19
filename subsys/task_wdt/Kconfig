@@ -54,6 +54,49 @@ config TASK_WDT_THREAD_STACK_SIZE
       The expiry path logs synchronously and runs the channel callbacks
       on this stack; the QEMU build uses about 700 bytes of it there.
 
+config TASK_WDT_HARDLOCKUP
+    bool "Hard lockup detector"
+    depends on ARCH_HAS_HARDLOCKUP_DETECTOR && WATCHDOG
+    help
+      Write a core dump when an interrupt handler or a thread with the
+      kernel's interrupts locked starves the watchdog thread, instead of
+      leaving the hardware watchdog to reset without one. A timer that
+      the interrupt lock does not mask counts the time the CPU runs,
+      outside idle waits and deep sleep, since the watchdog thread last
+      ran; it interrupts the CPU at least sixteen times per timeout while
+      it runs.
+
+      A board that turns it on gives the condition too, as with
+      "default y if ARCH_HAS_HARDLOCKUP_DETECTOR": a default set in
+      another file is not bound by the dependencies above.
+
+config TASK_WDT_HARDLOCKUP_TIMEOUT_MS
+    int "Hard lockup timeout in milliseconds"
+    depends on TASK_WDT_HARDLOCKUP
+    default 4500 if WATCHDOG_STM32
+    default 6000 if WATCHDOG_TIMEOUT_MS < 20000
+    default 20000
+    help
+      Time the CPU runs without the watchdog thread running after which
+      a hard lockup is reported, never sooner, and at most an eighth
+      later. Above the check and grace periods; with that eighth, below
+      TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS.
+
+config TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS
+    int "Shortest hardware watchdog timeout in milliseconds"
+    depends on TASK_WDT_HARDLOCKUP
+    default 5500 if WATCHDOG_STM32
+    default WATCHDOG_TIMEOUT_MS
+    help
+      The hardware watchdog's timeout with its clock at the fast end of
+      its tolerance; the detector's timeout is checked against it. The
+      STM32F4 IWDG counts 4096 periods of the LSI divided by 64, 8.2 s at
+      the nominal 32 kHz, but the LSI may run at up to 47 kHz: 5.6 s.
+
+      The check covers a CPU that ran since the last feed. Time it idled
+      or slept before a lockup is counted by the hardware watchdog only:
+      such a lockup is reported up to TASK_WDT_CHECK_PERIOD_MS later.
+
 module = TASK_WDT
 module-str = Task watchdog
 source "subsys/logging/Kconfig.template.log_level"

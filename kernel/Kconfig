@@ -60,6 +60,12 @@ config ARCH_HAS_COREDUMP
 	help
 	  The architecture can capture its state for a core dump.
 
+config ARCH_HAS_HARDLOCKUP_DETECTOR
+	bool
+	help
+	  The architecture has a timer for the hard lockup detector that the
+	  kernel's interrupt lock does not mask (pbl/task_wdt/arch.h).
+
 config ARCH_HAS_STACK_GUARD
 	bool
 	help

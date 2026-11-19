@@ -18,6 +18,7 @@
 #include <pbl/kernel/types.h>
 #include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
+#include <pbl/task_wdt/hardlockup.h>
 #include <pbl/task_wdt/task_wdt.h>
 #include <pbl/util/math.h>
 
@@ -230,8 +231,8 @@ static bool prv_debugger_attached(void) {
 }
 
 static void prv_feed_hw(bool debugger) {
+  pbl_task_wdt_hardlockup_feed();
 #ifdef CONFIG_WATCHDOG_RUNS_WHILE_HALTED
-  // Stopped for the debugger: feeding restarts it
   if (debugger) {
     return;
   }
@@ -281,6 +282,8 @@ static uint32_t prv_check(void) {
 
 static void prv_thread_entry(void *arg) {
   uint32_t sleep_ms = CONFIG_TASK_WDT_CHECK_PERIOD_MS;
+
+  pbl_task_wdt_hardlockup_start();
 
   for (;;) {
     pbl_thread_sleep(PBL_MSEC(sleep_ms));
