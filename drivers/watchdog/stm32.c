@@ -6,6 +6,7 @@
 
 #include <pbl/drivers/watchdog.h>
 #include <pbl/soc/stm32/cmsis.h>
+#include <pbl/task_wdt/hardlockup.h>
 
 // LSI ~32 kHz / 64 = 500 Hz; 0xfff ticks is ~8 s, matching the bootloader.
 #define IWDG_PRESCALER IWDG_Prescaler_64
@@ -32,6 +33,7 @@ void watchdog_stop(void) {
 
 void watchdog_feed(void) {
   IWDG_ReloadCounter();
+  pbl_task_wdt_hardlockup_feed();
 }
 
 bool watchdog_check_reset_flag(void) {
