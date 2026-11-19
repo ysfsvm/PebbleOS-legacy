@@ -21,7 +21,8 @@ callback, backing a single hardware watchdog (`include/pbl/drivers/watchdog.h`).
   the hardware watchdog is kept alive without SoC-specific timers. A thread
   spinning with interrupts disabled, or an interrupt handler that never
   returns, starves the watchdog thread too; the hardware watchdog is the
-  backstop for those.
+  backstop for those, and the hard lockup detector below turns most of them
+  into core dumps.
 - When a channel **expires**, the watchdog thread logs the stuck thread's
   name, saved PC and LR, and calls the channel callback. The callback may
   try to unblock the thread and returns a pointer naming the work it was
@@ -51,6 +52,52 @@ callback, backing a single hardware watchdog (`include/pbl/drivers/watchdog.h`).
   `pbl_task_wdt_resume()`), for phases such as boot or a long settings-file
   compaction where stalls are expected.
 
+## Hard lockup detector
+
+With `CONFIG_TASK_WDT_HARDLOCKUP`, a timer of the architecture that the
+kernel's interrupt lock does not mask counts the time the CPU runs, outside
+idle waits and deep sleep, since the watchdog thread last checked its
+channels. The thread starts the detector and feeds it with
+`pbl_task_wdt_hardlockup_feed()` on every check, also when it does not feed
+the hardware watchdog (for a debugger, or a driver that is not up), and
+every hardware watchdog driver reports its own feeds, so the feeds of long
+flash erases count too.
+
+Past `CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS` (never sooner, at most an
+eighth later), the detector calls `pbl_task_wdt_hardlockup()` with the
+interrupted code's PC, LR and exception number. The timeout lies between
+the check period and `CONFIG_TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS`, the
+shortest time the hardware watchdog may take: on the STM32F4, 5.5 s for a
+nominal 8.2 s, as the IWDG runs from the LSI (17 to 47 kHz). The default
+report writes a core dump. The firmware overrides it to store the lockup in
+the reboot reason (`RebootReasonCode_HardLockup`), which the next boot
+logs, unless an earlier reason other than a task watchdog stall is stored
+(an assert that then hung), and to set `BOOT_BIT_SOFTWARE_FAILURE_OCCURRED`,
+as its other crash paths do: the bootloader counts the reset as a failed
+boot.
+
+It finds an interrupt handler that never returns or that is taken again
+and again, and a thread spinning with the kernel's interrupts locked. It
+does not see code spinning with every interrupt masked, nor a system that
+idles or sleeps and never wakes up: its timer stops there, and the hardware
+watchdog still resets those without a dump.
+
+A dump is also not certain for a lockup that starts after the CPU idled or
+slept since the last check. The hardware watchdog counts that time and the
+detector does not, so the report comes up to a check period later, counted
+from the last feed: check period plus timeout plus an eighth, 8.06 s with
+the STM32F4 defaults. That is before the IWDG's nominal 8.2 s, but not
+before its shortest time, and an IWDG on a faster LSI resets first.
+
+An architecture provides the timer by selecting
+`ARCH_HAS_HARDLOCKUP_DETECTOR` and implementing `pbl/task_wdt/arch.h`. On
+Cortex-M it is SysTick at the most urgent priority, so the detector is not
+available where SysTick is the system timer (the QEMU boards). SysTick
+counts CPU cycles and is capped at 2^24 of them, so its period is a
+sixteenth of the timeout or less: it interrupts the CPU that often while it
+runs. It is stopped around the idle wait, which it would otherwise end
+every period.
+
 ## Users
 
 - `pebble/main.c` starts the watchdog, suspends it for the first 30 s of
@@ -69,6 +116,8 @@ callback, backing a single hardware watchdog (`include/pbl/drivers/watchdog.h`).
 
 `tests/subsys/task_wdt/` runs the subsystem on the POSIX kernel port with
 virtual time; see {doc}`../development/tests/unit` for how to run it.
+`tests/subsys/task_wdt_hardlockup/` runs the hard lockup detector's counting
+against a stand-in for the architecture's timer.
 
 The QEMU boards carry a real hardware watchdog (the CMSDK APB watchdog,
 driven by `drivers/watchdog/qemu.c`), so both paths can be tried in
