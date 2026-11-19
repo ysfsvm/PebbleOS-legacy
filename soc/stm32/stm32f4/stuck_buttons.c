@@ -4,7 +4,9 @@
 
 //! The stock bootloader counts, in an RTC backup register, the boots made with each button held,
 //! and refuses to start the firmware once a count says the button is stuck. The firmware's part
-//! is to clear a button's count when it sees that button released.
+//! is to clear a button's count when it sees that button released: any release of the key that is
+//! reported, from the keys driver or another input source such as remote input or the input
+//! shell, in a thread or an interrupt.
 
 #include <pbl/input/input.h>
 #include <pbl/kernel/irq.h>
