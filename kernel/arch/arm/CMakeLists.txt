@@ -12,6 +12,7 @@ pbl_library_sources(
   vector_table.c
 )
 pbl_library_sources_ifdef(CONFIG_COREDUMP coredump.c)
+pbl_library_sources_ifdef(CONFIG_TASK_WDT_HARDLOCKUP hardlockup.c)
 pbl_library_sources_ifdef(CONFIG_CPU_HAS_DCACHE dcache.c)
 pbl_library_sources_ifdef(CONFIG_CPU_HAS_ICACHE icache.c)
 pbl_library_sources_ifdef(CONFIG_USERSPACE syscall.c)
