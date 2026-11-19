@@ -8,7 +8,6 @@
 
 #include <pbl/drivers/clk.h>
 #include <pbl/drivers/gpio.h>
-#include <pbl/util/misc.h>
 
 #include <devicetree/devices.h>
 
