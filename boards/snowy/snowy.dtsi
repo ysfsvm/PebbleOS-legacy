@@ -11,6 +11,8 @@
 
 / {
 	// Active low. Back has an external pull-up, the others take the pin's.
+	// 31 ms: the RTC alarm clock event adds up to 12 ms, so a key is
+	// reported about 40 ms after its last edge, as by the stock firmware.
 	buttons: gpio-keys {
 		compatible = "gpio-keys";
 
@@ -18,28 +20,28 @@
 			label = "Back";
 			gpios = <&gpiog 4 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_BACK>;
-			debounce-interval = <40>;
+			debounce-interval = <31>;
 		};
 
 		button-up {
 			label = "Up";
 			gpios = <&gpiog 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			linux,code = <KEY_UP>;
-			debounce-interval = <40>;
+			debounce-interval = <31>;
 		};
 
 		button-select {
 			label = "Select";
 			gpios = <&gpiog 1 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			linux,code = <KEY_SELECT>;
-			debounce-interval = <40>;
+			debounce-interval = <31>;
 		};
 
 		button-down {
 			label = "Down";
 			gpios = <&gpiog 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			linux,code = <KEY_DOWN>;
-			debounce-interval = <40>;
+			debounce-interval = <31>;
 		};
 	};
 

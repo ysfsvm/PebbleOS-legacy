@@ -254,7 +254,7 @@ clock event variant of the emulated SoC.
 | Feature | On the watch | Emulator |
 | --- | --- | --- |
 | Display | Runs; frame timing measured | Yes |
-| Buttons | Run; key-to-frame timing measured | Yes |
+| Buttons | Run; debounce set from the code for about 40 ms from press to event, not measured | Yes |
 | Backlight | Runs, capped at 80 % of full scale; PWM levels not checked one by one | No |
 | Vibe | Runs; patterns not checked one by one | No |
 | Accelerometer | No recorded check | No |
