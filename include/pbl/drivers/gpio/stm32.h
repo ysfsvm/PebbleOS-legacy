@@ -41,15 +41,6 @@ struct pbl_gpio_stm32 {
 #define STM32_GPIOH (&dt_gpioh)
 
 /**
- * @brief Index of a port, A = 0, which is also its EXTI port source.
- *
- * Out of line: the compiler takes a port the tree defines for a bare struct pbl_gpio_port.
- *
- * @param port STM32 port.
- */
-uint8_t pbl_gpio_stm32_index(const struct pbl_gpio_port *port);
-
-/**
  * @brief Hand a pin to a peripheral.
  *
  * Initialises the pin's port first.

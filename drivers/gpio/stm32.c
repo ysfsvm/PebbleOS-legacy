@@ -78,10 +78,6 @@ static int prv_set(const struct pbl_gpio_port *gpio_port, uint8_t pin, bool leve
   return 0;
 }
 
-uint8_t pbl_gpio_stm32_index(const struct pbl_gpio_port *port) {
-  return prv_port(port)->index;
-}
-
 void pbl_gpio_stm32_af(const struct pbl_gpio *gpio, uint8_t af, uint32_t flags, uint32_t speed) {
   const struct pbl_gpio_stm32 *port = prv_port(gpio->port);
 
