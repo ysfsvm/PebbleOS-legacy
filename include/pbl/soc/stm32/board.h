@@ -13,20 +13,6 @@
 #include <pbl/soc/stm32/cmsis.h>
 // clang-format on
 
-//! An EXTI line and the GPIO port routed to it.
-typedef struct {
-  uint8_t exti_port_source; ///< Port index, A = 0 (EXTI_PortSourceGPIOx)
-  uint8_t exti_line;        ///< Line, which is also the pin number
-} ExtiConfig;
-
-//! EXTI line of a pin on an STM32 port.
-static inline ExtiConfig pbl_exti_stm32_config(const struct pbl_gpio *gpio) {
-  return (ExtiConfig){
-    .exti_port_source = pbl_gpio_stm32_index(gpio->port),
-    .exti_line = gpio->pin,
-  };
-}
-
 typedef enum {
   AccelThresholdLow,  ///< A sensitive state used for stationary mode
   AccelThresholdHigh, ///< The accelerometer's default sensitivity
