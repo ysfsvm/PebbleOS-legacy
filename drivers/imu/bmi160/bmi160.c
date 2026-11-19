@@ -14,7 +14,6 @@
 
 #include <pbl/board.h>
 #include <pbl/drivers/accel.h>
-#include <pbl/drivers/exti.h>
 #include <pbl/drivers/imu/bmi160/bmi160.h>
 #include <pbl/drivers/rtc.h>
 #include <pbl/kernel/assert.h>
@@ -405,7 +404,7 @@ static void prv_dump_int_stats(void) {
 }
 
 // should be servicing tap/motion interrupts
-static void bmi160_IRQ1_handler(void) {
+static void bmi160_IRQ1_handler(void *arg) {
   if (!s_accel_outstanding_motion_work) {
     s_accel_outstanding_motion_work = true;
     (void)pbl_work_submit(&pbl_sys_workq_high, &s_motion_work);
@@ -532,7 +531,7 @@ static void prv_handle_data(void) {
   }
 }
 
-static void bmi160_IRQ2_handler(void) {
+static void bmi160_IRQ2_handler(void *arg) {
   if (!s_accel_outstanding_data_work) {
     s_accel_outstanding_data_work = true;
     (void)pbl_work_submit(&pbl_sys_workq_high, &s_data_work);
@@ -566,6 +565,9 @@ static void prv_accel_enable_undersampling(bool enable) {
 // ready on INT2), shake and double tap (INT1).
 static uint8_t s_interrupt_users;
 
+//! INT1 and INT2
+static struct pbl_irq_spec s_irqs[2];
+
 static void prv_update_accel_interrupts(bool use, AccelOperatingMode mode) {
   const bool was_enabled = (s_interrupt_users != 0);
   if (use) {
@@ -583,9 +585,9 @@ static void prv_update_accel_interrupts(bool use, AccelOperatingMode mode) {
     uint8_t int_mask = 0xf << (i * 4);
     if (enable) {
       int_cfg = 0xA << (i * 4); // INT EN, Push-Pull, Active High, Level Triggered
-      exti_enable(pbl_exti_stm32_config(&BOARD_CONFIG_ACCEL.accel_int_gpios[i]));
+      (void)pbl_intc_enable(&s_irqs[i]);
     } else { // disable
-      exti_disable(pbl_exti_stm32_config(&BOARD_CONFIG_ACCEL.accel_int_gpios[i]));
+      (void)pbl_intc_disable(&s_irqs[i]);
     }
 
     prv_read_modify_write(BMI160_REG_INT_OUT_CTRL, int_cfg, int_mask);
@@ -601,13 +603,28 @@ static int prv_init(const struct pbl_accel *accel) {
 
   bmi160_spi_init();
 
-  pbl_gpio_configure(&BOARD_CONFIG_ACCEL.accel_int_gpios[0], PBL_GPIO_INPUT);
-  pbl_gpio_configure(&BOARD_CONFIG_ACCEL.accel_int_gpios[1], PBL_GPIO_INPUT);
+  static const pbl_intc_handler_t s_handlers[] = {bmi160_IRQ1_handler, bmi160_IRQ2_handler};
+  for (unsigned int i = 0; i < ARRAY_LENGTH(s_irqs); i++) {
+    const struct pbl_gpio *gpio = &BOARD_CONFIG_ACCEL.accel_int_gpios[i];
+    int ret;
 
-  exti_configure_pin(pbl_exti_stm32_config(&BOARD_CONFIG_ACCEL.accel_int_gpios[0]),
-                     ExtiTrigger_Rising, bmi160_IRQ1_handler);
-  exti_configure_pin(pbl_exti_stm32_config(&BOARD_CONFIG_ACCEL.accel_int_gpios[1]),
-                     ExtiTrigger_Rising, bmi160_IRQ2_handler);
+    ret = pbl_gpio_to_irq(gpio, PBL_IRQ_TYPE_EDGE_RISING, &s_irqs[i]);
+    if (ret != 0) {
+      return ret;
+    }
+    ret = pbl_device_init(&s_irqs[i].intc->dev);
+    if (ret != 0) {
+      return ret;
+    }
+    ret = pbl_gpio_configure(gpio, PBL_GPIO_INPUT);
+    if (ret != 0) {
+      return ret;
+    }
+    ret = pbl_intc_request(&s_irqs[i], s_handlers[i], nullptr);
+    if (ret != 0) {
+      return ret;
+    }
+  }
 
   // A failed init is not tried again until the next boot, so one bad read must not decide it.
   bool found = false;
