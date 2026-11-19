@@ -122,6 +122,13 @@ void debug_reboot_reason_print(McuRebootReason mcu_reboot_reason) {
         }
       }
       break;
+#ifdef CONFIG_TASK_WDT_HARDLOCKUP
+    case RebootReasonCode_HardLockup:
+      PBL_LOG_WRN("%s%sHard lockup in exception %" PRIu32 ": PC 0x%" PRIx32 ", LR 0x%" PRIx32,
+                  restarted_safely_string, rebooted_due_to, reason.hard_lockup.exception,
+                  reason.hard_lockup.pc, reason.hard_lockup.lr);
+      break;
+#endif
     case RebootReasonCode_StackOverflow: {
       PebbleTask task = (PebbleTask)reason.data8[0];
       PBL_LOG_WRN("%s%sStackOverflow: Task #%d", restarted_safely_string, rebooted_due_to, task);
