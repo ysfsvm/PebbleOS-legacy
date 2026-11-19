@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include <pbl/drivers/watchdog.h>
+#include <pbl/task_wdt/hardlockup.h>
 
 #include <hardware/qemu_memorymap.h>
 
@@ -47,6 +48,7 @@ void watchdog_stop(void) {
 
 void watchdog_feed(void) {
   REG32(WDOG_INTCLR) = 1;
+  pbl_task_wdt_hardlockup_feed();
 }
 
 bool watchdog_check_reset_flag(void) {

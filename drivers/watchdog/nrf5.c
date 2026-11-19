@@ -5,6 +5,7 @@
 
 #include <pbl/drivers/watchdog.h>
 #include <pbl/kernel/mmio.h>
+#include <pbl/task_wdt/hardlockup.h>
 
 #include <hardware/nrf52_memorymap.h>
 #include <hardware/nrf52_power.h>
@@ -38,6 +39,7 @@ void watchdog_start(void) {
 
 void watchdog_feed(void) {
   prv_wdt_putreg(NRF52_WDT_RR_OFFSET(0), WDT_RR_RELOAD);
+  pbl_task_wdt_hardlockup_feed();
 }
 
 bool watchdog_check_reset_flag(void) {
