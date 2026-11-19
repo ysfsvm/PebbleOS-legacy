@@ -46,7 +46,7 @@ has its own section at the end of this page.
 
 ### Devices
 
-From `boards/snowy/snowy.c`, `snowy.h` and the BMI160's SPI glue.
+From `boards/snowy/snowy.dtsi`, `snowy.c`, `snowy.h` and the BMI160's SPI glue.
 
 | Device | Bus and pins | Driver | Role |
 | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ From `boards/snowy/snowy.c`, `snowy.h` and the BMI160's SPI glue.
 | Ambient light | ADC1 channel 2 (PA2), enabled by PA3 | `als/stm32_adc` | `als` |
 | Vibe | TIM10 CH1 on PB8, 22 kHz; enable PF4 | `vibe/pwm` | `vibe` |
 | Microphone | SPI2 as I2S, CK PB10, SD PB15; RX DMA1 stream 3 channel 0; powered from PMIC LDO3 | `audio/stm32_i2s_pdm` | `mic` |
-| Buttons | Back PG4, Up PG3, Select PG1, Down PG2, active low | `input/stm32_keys` | |
+| Buttons | Back PG4, Up PG3, Select PG1, Down PG2, active low | `input/gpio_keys`, from the tree | |
 | Die temperature | internal sensor | `temp/stm32` | `die_temp` |
 | RTC | internal, 32.768 kHz LSE in bypass mode | `rtc/stm32`, `timer/stm32_rtc` | `rtc` |
 
@@ -115,7 +115,7 @@ one needs every stock reader checked first.
 - **Boot bits, reboot reason, stuck buttons** (`pebble/system/bootbits.c`,
   `reboot_reason.c`): the bootloader picks the firmware or the recovery by
   the boot bits, and counts boots with each button held in DR1, which
-  `drivers/input/stm32_keys.c` clears per button on release.
+  `soc/stm32/stm32f4/stuck_buttons.c` clears per button on release.
 - **S29VS erase in progress.** DR11 in the stock layout (bit 31 in
   progress, bit 30 boot sector, address); `drivers/flash/s29vs.c` finishes
   an interrupted erase at the next boot.
@@ -152,15 +152,17 @@ Under `boards/snowy/` unless named otherwise:
   memory-mapped system resources, the pairing mode.
 - `roles.yml`: each role names a C object with `symbol:` and the header
   that declares it (`snowy_devices.h`), not a devicetree node.
-- `snowy.dts`, `snowy.dtsi`: only the NOR flash and its fixed partitions,
-  from which the build generates the `PART_*` constants
-  (`CONFIG_BOARD_PARTITIONS_DT`).
+- `snowy.dts`, `snowy.dtsi`: the SoC tree (`dts/st/stm32f439.dtsi`), the
+  buttons, and the NOR flash with its fixed partitions, from which the
+  build generates the `PART_*` constants (`CONFIG_BOARD_PARTITIONS_DT`).
 
-The STM32 peripherals have no devicetree bindings yet. The UARTs, I2C, SPI,
-DMA, timers and GPIOs are defined in C with the drivers' macros, on the ST
+The tree follows the Linux bindings of the STM32F4. The RCC clock
+controller, the GPIO ports with their pin interrupts and the buttons come
+from it, and their drivers use the registers directly. The UARTs, I2C, SPI,
+DMA and timers are still defined in C with the drivers' macros, on the ST
 Standard Peripheral Library (`third_party/hal_stm32`), and the display,
-Bluetooth and accelerometer take their pins from `snowy.h`. Bindings for
-them, and moving these devices into the devicetree, are planned work.
+Bluetooth and accelerometer take their pins from `snowy.h`. Moving them
+into the devicetree is planned work.
 
 ### Clock event
 
@@ -252,7 +254,7 @@ clock event variant of the emulated SoC.
 | Feature | On the watch | Emulator |
 | --- | --- | --- |
 | Display | Runs; frame timing measured | Yes |
-| Buttons | Run; key-to-frame timing measured | Yes |
+| Buttons | Run; debounce set from the code for about 40 ms from press to event, not measured | Yes |
 | Backlight | Runs, capped at 80 % of full scale; PWM levels not checked one by one | No |
 | Vibe | Runs; patterns not checked one by one | No |
 | Accelerometer | No recorded check | No |

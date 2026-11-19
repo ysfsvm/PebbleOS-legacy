@@ -12,7 +12,6 @@
 #include <pbl/drivers/backlight/pwm.h>
 #include <pbl/drivers/dma/stm32.h>
 #include <pbl/drivers/i2c/stm32.h>
-#include <pbl/drivers/input/stm32_keys.h>
 #include <pbl/drivers/pmic/max14690.h>
 #include <pbl/drivers/pwm/stm32.h>
 #include <pbl/kernel/irq.h>
@@ -134,20 +133,6 @@ PBL_IRQ_CONNECT(I2C1_EV, 12, pbl_i2c_stm32_ev_irq_handler, &s_i2c1, 0);
 PBL_IRQ_CONNECT(I2C1_ER, 12, pbl_i2c_stm32_er_irq_handler, &s_i2c1, 0);
 
 static const struct pbl_i2c_dev I2C_SLAVE_MAX14690 = PBL_I2C_DEV(&s_i2c1.bus, 0x28);
-
-// Buttons: active low with pull-ups; Back has an external one
-///////////////////////////////////////////////////////////////////////////////
-
-PBL_STM32_KEYS_DEFINE(
-    BUTTONS, "buttons",
-    PBL_GPIO_KEYS_KEY("Back", PBL_GPIO(STM32_GPIOG, 4, PBL_GPIO_ACTIVE_LOW), PBL_INPUT_KEY_BACK,
-                      40),
-    PBL_GPIO_KEYS_KEY("Up", PBL_GPIO(STM32_GPIOG, 3, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP),
-                      PBL_INPUT_KEY_UP, 40),
-    PBL_GPIO_KEYS_KEY("Select", PBL_GPIO(STM32_GPIOG, 1, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP),
-                      PBL_INPUT_KEY_SELECT, 40),
-    PBL_GPIO_KEYS_KEY("Down", PBL_GPIO(STM32_GPIOG, 2, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP),
-                      PBL_INPUT_KEY_DOWN, 40));
 
 // Compass: MAG3110, data ready active high on PF14
 PBL_MAG3110_DEFINE(snowy_mag, &s_i2c1.bus, 0x0e, .int_gpio = PBL_GPIO(STM32_GPIOF, 14, 0),
