@@ -82,6 +82,13 @@ does not see code spinning with every interrupt masked, nor a system that
 idles or sleeps and never wakes up: its timer stops there, and the hardware
 watchdog still resets those without a dump.
 
+A dump is also not certain for a lockup that starts after the CPU idled or
+slept since the last check. The hardware watchdog counts that time and the
+detector does not, so the report comes up to a check period later, counted
+from the last feed: check period plus timeout plus an eighth, 8.06 s with
+the STM32F4 defaults. That is before the IWDG's nominal 8.2 s, but not
+before its shortest time, and an IWDG on a faster LSI resets first.
+
 An architecture provides the timer by selecting
 `ARCH_HAS_HARDLOCKUP_DETECTOR` and implementing `pbl/task_wdt/arch.h`. On
 Cortex-M it is SysTick at the most urgent priority, so the detector is not

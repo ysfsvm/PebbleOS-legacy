@@ -93,6 +93,10 @@ config TASK_WDT_HARDLOCKUP_WATCHDOG_MIN_MS
       STM32F4 IWDG counts 4096 periods of the LSI divided by 64, 8.2 s at
       the nominal 32 kHz, but the LSI may run at up to 47 kHz: 5.6 s.
 
+      The check covers a CPU that ran since the last feed. Time it idled
+      or slept before a lockup is counted by the hardware watchdog only:
+      such a lockup is reported up to TASK_WDT_CHECK_PERIOD_MS later.
+
 module = TASK_WDT
 module-str = Task watchdog
 source "subsys/logging/Kconfig.template.log_level"
