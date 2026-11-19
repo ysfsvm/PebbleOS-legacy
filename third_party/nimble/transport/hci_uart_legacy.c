@@ -539,6 +539,13 @@ static void prv_hcill_rx(uint8_t msg) {
   }
 }
 
+//! Back to sleep after an incomplete wake, with interrupts locked.
+static void prv_hcill_sleep_locked(void) {
+  s_hcill = HcillAsleep;
+  cc2564_cts_wake_enable(prv_hcill_cts_wake_isr);
+  cc2564_hold_rts(true);
+}
+
 //! In the HCI task: a CTS edge that no WAKE_UP_IND followed was not the
 //! controller waking us (e.g. its RTS settling as it went to sleep). Go back
 //! to sleep.
@@ -551,14 +558,12 @@ static void prv_hcill_check_false_wake(void) {
   bool back_to_sleep = false;
   pbl_irq_lock();
   if (s_hcill == HcillCtrlWaking) {
-    cc2564_hold_rts(true);
-    s_hcill = HcillAsleep;
+    prv_hcill_sleep_locked();
     back_to_sleep = true;
   }
   pbl_irq_unlock();
   if (back_to_sleep) {
     s_hcill_false_wakes++;
-    cc2564_cts_wake_enable(prv_hcill_cts_wake_isr);
     soc_stm32_stop_release();
   }
   pbl_mutex_unlock(&s_tx_mutex);
@@ -606,13 +611,11 @@ static bool prv_hcill_lock_awake(void) {
   bool back_to_sleep = false;
   pbl_irq_lock();
   if (s_hcill == HcillWaking) {
-    cc2564_hold_rts(true);
-    s_hcill = HcillAsleep;
+    prv_hcill_sleep_locked();
     back_to_sleep = true;
   }
   pbl_irq_unlock();
   if (back_to_sleep) {
-    cc2564_cts_wake_enable(prv_hcill_cts_wake_isr);
     soc_stm32_stop_release();
   }
   pbl_mutex_unlock(&s_tx_mutex);
