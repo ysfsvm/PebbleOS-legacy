@@ -37,7 +37,8 @@ static uint32_t prv_pull(uint32_t flags) {
   return STM32F4_GPIO_PULL_NONE;
 }
 
-// The mode goes last, once the pin has its other settings
+// Every mode gets all four settings: an input or analog pin an output type and a speed too, which
+// it ignores. The mode goes last, once the pin has its other settings.
 static void prv_init_pin(const struct pbl_gpio_stm32 *port, uint8_t pin, uint32_t mode,
                          uint32_t flags, uint32_t speed) {
   pbl_modifyl(PBL_BIT(pin), (flags & PBL_GPIO_OPEN_DRAIN) ? PBL_BIT(pin) : 0U,
