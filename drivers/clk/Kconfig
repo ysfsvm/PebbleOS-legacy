@@ -36,6 +36,12 @@ config CLK_NRF52
     help
       HFCLK and LFCLK of the Nordic nRF52, from their crystal oscillators.
 
+config CLK_STM32F4
+    bool "ST STM32F4 RCC"
+    default DT_HAS_ST_STM32F42XX_RCC_ENABLED
+    help
+      Peripheral clock gates and bus clocks of the STM32F4 RCC.
+
 config CLK_CAL
     bool
     help
