@@ -473,7 +473,7 @@ static void prv_hcill_send(uint8_t msg) {
   cc2564_send_hcill(msg);
 }
 
-static void prv_hcill_cts_wake_isr(void) {
+static void prv_hcill_cts_wake_isr(void *arg) {
   if (s_hcill != HcillAsleep) {
     return;
   }
