@@ -143,3 +143,19 @@ config BT_LE_IDLE_INTERVAL_MAX
     int "Maximum connection interval while idle (1.25 ms units)"
     default 36 if LEGACY_WATCH
     default 48
+
+config LEGACY_HARDLOCKUP_TEST
+    bool "Lock up a minute after boot (test of the hard lockup detector)"
+    depends on TASK_WDT_HARDLOCKUP && COREDUMP && SOC_STM32F4
+    help
+      For testing only. A minute after boot, spin on the system work
+      queue with the kernel's interrupts locked, which starves the
+      watchdog thread, unless an unread core dump is stored: the detector
+      writes one, so the watch then boots normally until it is read.
+
+      It does not lock up on the boot after a crash or a hardware
+      watchdog reset, whatever the detector did, nor while a firmware
+      update runs. Each lockup, and a hardware watchdog reset if the
+      detector fails, is a failed boot for the stock bootloader, which
+      starts the recovery firmware at the third without 15 minutes of
+      running in between: let the watch run 15 minutes after a test.

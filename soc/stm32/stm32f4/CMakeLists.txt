@@ -11,3 +11,4 @@ pbl_library_sources(
   sleep.c
   stuck_buttons.c
 )
+pbl_library_sources_ifdef(CONFIG_LEGACY_HARDLOCKUP_TEST hardlockup_test.c)
