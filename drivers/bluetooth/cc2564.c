@@ -25,9 +25,9 @@
 
 #include <pbl/board.h>
 #include <pbl/drivers/bluetooth/cc2564.h>
-#include <pbl/drivers/exti.h>
 #include <pbl/drivers/gpio/stm32.h>
 #include <pbl/drivers/uart/stm32.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/reboot.h>
 #include <pbl/kernel/sem.h>
@@ -408,11 +408,19 @@ void cc2564_hold_rts(bool hold) {
   }
 }
 
-void cc2564_cts_wake_enable(ExtiHandlerCallback cb) {
-  // The controller pulses its RTS (our CTS) to wake us.
-  const ExtiConfig exti = pbl_exti_stm32_config(&BOARD_BT_CTS);
-  exti_configure_pin(exti, ExtiTrigger_RisingFalling, cb);
-  exti_enable(exti);
+//! Controller wake-up on CTS
+static struct pbl_irq_spec s_cts_irq;
+
+void cc2564_cts_wake_enable(pbl_intc_handler_t cb) {
+  if (!pbl_irq_spec_is_connected(&s_cts_irq)) {
+    struct pbl_irq_spec irq;
+
+    PBL_ASSERTN(pbl_gpio_to_irq(&BOARD_BT_CTS, PBL_IRQ_TYPE_EDGE_BOTH, &irq) == 0);
+    PBL_ASSERTN(pbl_device_init(&irq.intc->dev) == 0);
+    PBL_ASSERTN(pbl_intc_request(&irq, cb, nullptr) == 0);
+    s_cts_irq = irq;
+  }
+  (void)pbl_intc_enable(&s_cts_irq);
 }
 
 void cc2564_send_hcill(uint8_t msg) {
@@ -433,7 +441,9 @@ void cc2564_send_hcill(uint8_t msg) {
 }
 
 void cc2564_cts_wake_disable(void) {
-  exti_disable(pbl_exti_stm32_config(&BOARD_BT_CTS));
+  if (pbl_irq_spec_is_connected(&s_cts_irq)) {
+    (void)pbl_intc_disable(&s_cts_irq);
+  }
 }
 
 void cc2564_shutdown(void) {
