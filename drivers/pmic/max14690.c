@@ -12,7 +12,6 @@
 #include <pbl/board.h>
 #include <pbl/drivers/adc/stm32.h>
 #include <pbl/drivers/battery.h>
-#include <pbl/drivers/exti.h>
 #include <pbl/drivers/pmic.h>
 #include <pbl/drivers/pmic/max14690.h>
 #include <pbl/kernel/assert.h>
@@ -174,18 +173,36 @@ static void prv_handle_interrupt(void *data) {
   pbl_delayed_work_reschedule(&pbl_sys_workq, &s_debounce_usb_conn, PBL_MSEC(USB_CONN_DEBOUNCE_MS));
 }
 
-static void prv_interrupt_handler(void) {
+static void prv_interrupt_handler(void *arg) {
   pbl_sys_work_call_from_isr(prv_handle_interrupt, nullptr);
 }
 
-static void prv_configure_interrupts(void) {
-  const ExtiConfig exti = pbl_exti_stm32_config(&MAX14690->int_gpio);
-  exti_configure_pin(exti, ExtiTrigger_Falling, prv_interrupt_handler);
-  exti_enable(exti);
+static int prv_configure_interrupts(void) {
+  struct pbl_irq_spec irq;
+  int ret;
+
+  ret = pbl_gpio_to_irq(&MAX14690->int_gpio, PBL_IRQ_TYPE_EDGE_FALLING, &irq);
+  if (ret != 0) {
+    return ret;
+  }
+  ret = pbl_device_init(&irq.intc->dev);
+  if (ret != 0) {
+    return ret;
+  }
+  ret = pbl_intc_request(&irq, prv_interrupt_handler, nullptr);
+  if (ret != 0) {
+    return ret;
+  }
+  ret = pbl_intc_enable(&irq);
+  if (ret != 0) {
+    return ret;
+  }
 
   // UsbOk only.
   prv_write_register(PmicRegisters_INT_MASK_A, 0x08);
   prv_clear_pending_interrupts();
+
+  return 0;
 }
 
 #define PROBE_ATTEMPTS       3U
@@ -222,7 +239,10 @@ int pbl_max14690_init(const struct pbl_device *dev) {
   s_present = true;
 
   prv_config_charger();
-  prv_configure_interrupts();
+  const int ret = prv_configure_interrupts();
+  if (ret != 0) {
+    PBL_LOG_ERR("No MAX14690 interrupt (%d): no charger events", ret);
+  }
   // LDO2 (3.2 V) powers the display FPGA.
   if (!prv_set_ldo(PmicRegisters_LDO2_CONFIG, true)) {
     PBL_LOG_ERR("Could not enable LDO2");
