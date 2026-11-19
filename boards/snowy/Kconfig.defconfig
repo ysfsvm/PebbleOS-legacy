@@ -82,3 +82,7 @@ config QEMU_SERIAL
 # /emoji pack file when installed (resource_map.json declares the store).
 config LEGACY_EMOJI_PACK
     default y
+
+# Core dumps for hard lockups in debug builds
+config TASK_WDT_HARDLOCKUP
+    default y if LEGACY_DEBUG && ARCH_HAS_HARDLOCKUP_DETECTOR && WATCHDOG
