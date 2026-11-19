@@ -6,10 +6,14 @@
 
 #include <pbl/devicetree.h>
 #include <pbl/drivers/gpio/stm32.h>
+#include <pbl/drivers/intc.h>
+#include <pbl/kernel/irq.h>
 #include <pbl/kernel/mmio.h>
 #include <pbl/util/misc.h>
 
+#include <hardware/stm32f4_exti.h>
 #include <hardware/stm32f4_gpio.h>
+#include <hardware/stm32f4_syscfg.h>
 
 static const struct pbl_gpio_stm32 *prv_port(const struct pbl_gpio_port *port) {
   return container_of(port, const struct pbl_gpio_stm32, port);
@@ -102,13 +106,154 @@ static int prv_init(const struct pbl_device *dev) {
   return pbl_clk_enable(&prv_port(container_of(dev, const struct pbl_gpio_port, dev))->clk);
 }
 
+// Pin interrupts
+////////////////////////////////////////////////////////////////////////////////
+
+#define EXTI_IRQ_PRIO 14
+
+struct pbl_gpio_stm32_intc {
+  struct pbl_intc intc;
+  const struct pbl_gpio_stm32 *port;
+  uintptr_t exti;
+  uintptr_t syscfg;
+  struct pbl_clk syscfg_clk;
+};
+
+static struct pbl_intc_line s_exti_lines[STM32F4_EXTI_NUM_PIN_LINES];
+// Any controller, for the handlers
+static const struct pbl_gpio_stm32_intc *s_exti_intc;
+
+static const struct pbl_gpio_stm32_intc *prv_intc(const struct pbl_intc *intc) {
+  return container_of(intc, const struct pbl_gpio_stm32_intc, intc);
+}
+
+static pbl_irq_t prv_exti_irqn(uint32_t line) {
+  if (line <= 4U) {
+    return PBL_IRQN(EXTI0) + line;
+  }
+  if (line <= 9U) {
+    return PBL_IRQN(EXTI9_5);
+  }
+  return PBL_IRQN(EXTI15_10);
+}
+
+static void prv_exti_bit(uintptr_t reg, uint32_t line, bool set) {
+  uint32_t value = pbl_readl(reg);
+
+  pbl_writel(set ? value | PBL_BIT(line) : value & ~PBL_BIT(line), reg);
+}
+
+static int prv_intc_configure(const struct pbl_intc *intc, uint32_t hwirq, uint32_t type) {
+  const struct pbl_gpio_stm32_intc *pin_intc = prv_intc(intc);
+  uintptr_t exticr = pin_intc->syscfg + STM32F4_SYSCFG_EXTICR_OFFSET(hwirq);
+
+  if ((type & ~PBL_IRQ_TYPE_EDGE_BOTH) != 0U) {
+    return -ENOTSUP;
+  }
+
+  prv_exti_bit(pin_intc->exti + STM32F4_EXTI_IMR_OFFSET, hwirq, false);
+  pbl_writel((pbl_readl(exticr) & ~STM32F4_SYSCFG_EXTICR_FIELD(hwirq)) |
+                 PBL_FIELD_PREP(STM32F4_SYSCFG_EXTICR_FIELD(hwirq), pin_intc->port->index),
+             exticr);
+  prv_exti_bit(pin_intc->exti + STM32F4_EXTI_RTSR_OFFSET, hwirq,
+               (type & PBL_IRQ_TYPE_EDGE_RISING) != 0U);
+  prv_exti_bit(pin_intc->exti + STM32F4_EXTI_FTSR_OFFSET, hwirq,
+               (type & PBL_IRQ_TYPE_EDGE_FALLING) != 0U);
+  pbl_writel(PBL_BIT(hwirq), pin_intc->exti + STM32F4_EXTI_PR_OFFSET);
+
+  return 0;
+}
+
+static int prv_intc_enable(const struct pbl_intc *intc, uint32_t hwirq) {
+  const struct pbl_gpio_stm32_intc *pin_intc = prv_intc(intc);
+
+  pbl_writel(PBL_BIT(hwirq), pin_intc->exti + STM32F4_EXTI_PR_OFFSET);
+  prv_exti_bit(pin_intc->exti + STM32F4_EXTI_IMR_OFFSET, hwirq, true);
+  // Shared vector, stays enabled
+  pbl_irq_enable(prv_exti_irqn(hwirq));
+
+  return 0;
+}
+
+static int prv_intc_disable(const struct pbl_intc *intc, uint32_t hwirq) {
+  const struct pbl_gpio_stm32_intc *pin_intc = prv_intc(intc);
+
+  prv_exti_bit(pin_intc->exti + STM32F4_EXTI_IMR_OFFSET, hwirq, false);
+  pbl_writel(PBL_BIT(hwirq), pin_intc->exti + STM32F4_EXTI_PR_OFFSET);
+
+  return 0;
+}
+
+static const struct pbl_intc_ops s_intc_ops = {
+  .configure = prv_intc_configure,
+  .enable = prv_intc_enable,
+  .disable = prv_intc_disable,
+};
+
+static void prv_exti_irq_handler(uint32_t lines) {
+  const struct pbl_gpio_stm32_intc *pin_intc = s_exti_intc;
+  uint32_t pending;
+
+  if (pin_intc == nullptr) {
+    return;
+  }
+
+  // Clear all pending lines, dispatch unmasked ones
+  pending = pbl_readl(pin_intc->exti + STM32F4_EXTI_PR_OFFSET) & lines;
+  pbl_writel(pending, pin_intc->exti + STM32F4_EXTI_PR_OFFSET);
+  pending &= pbl_readl(pin_intc->exti + STM32F4_EXTI_IMR_OFFSET);
+
+  while (pending != 0U) {
+    pbl_intc_dispatch(&pin_intc->intc, (uint32_t)__builtin_ctz(pending));
+    pending &= pending - 1U;
+  }
+}
+
+PBL_IRQ_CONNECT(EXTI0, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0x0001U, 0);
+PBL_IRQ_CONNECT(EXTI1, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0x0002U, 0);
+PBL_IRQ_CONNECT(EXTI2, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0x0004U, 0);
+PBL_IRQ_CONNECT(EXTI3, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0x0008U, 0);
+PBL_IRQ_CONNECT(EXTI4, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0x0010U, 0);
+PBL_IRQ_CONNECT(EXTI9_5, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0x03e0U, 0);
+PBL_IRQ_CONNECT(EXTI15_10, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0xfc00U, 0);
+
+static int prv_intc_init(const struct pbl_device *dev) {
+  const struct pbl_gpio_stm32_intc *pin_intc =
+      prv_intc(container_of(dev, const struct pbl_intc, dev));
+  int ret;
+
+  ret = pbl_clk_enable(&pin_intc->syscfg_clk);
+  if (ret != 0) {
+    return ret;
+  }
+
+  s_exti_intc = pin_intc;
+
+  return 0;
+}
+
 #define PORT_INDEX(_base) ((uint8_t)(((_base) / STM32F4_GPIO_PORT_SIZE) % 16U))
 
-#define PBL_GPIO_STM32_DEFINE(sym, _name, _base, _clk)                              \
-  PBL_DEVICE_STATE_DEFINE(sym);                                                     \
-  PBL_DEVICE_INSTANCE(sym, struct pbl_gpio_stm32, struct pbl_gpio_port, port) {     \
-    .port = PBL_GPIO_PORT_INIT(sym, _name, prv_init, nullptr, &s_ops, 16, nullptr), \
-    .base = (_base), .clk = _clk, .index = PORT_INDEX(_base),                       \
+#define PBL_GPIO_STM32_DEFINE(sym, _name, _base, _clk, _exti, _syscfg, _syscfg_clk)       \
+  extern const struct pbl_intc sym##_intc;                                                \
+  PBL_DEVICE_STATE_DEFINE(sym);                                                           \
+  PBL_DEVICE_STATE_DEFINE(sym##_intc);                                                    \
+  PBL_DEVICE_INSTANCE(sym, struct pbl_gpio_stm32, struct pbl_gpio_port, port){            \
+    .port = PBL_GPIO_PORT_INIT(sym, _name, prv_init, nullptr, &s_ops, 16, &sym##_intc),   \
+    .base = (_base),                                                                      \
+    .clk = _clk,                                                                          \
+    .index = PORT_INDEX(_base),                                                           \
+  };                                                                                      \
+  PBL_DEVICE_INSTANCE(sym##_intc, struct pbl_gpio_stm32_intc, struct pbl_intc, intc) {    \
+    .intc =                                                                               \
+        {                                                                                 \
+          .dev = PBL_DEVICE_INIT_CLASS(sym##_intc, _name "_intc", prv_intc_init,          \
+                                       &sym##_inst.port.dev, nullptr, &pbl_intc_class),   \
+          .ops = &s_intc_ops,                                                             \
+          .lines = s_exti_lines,                                                          \
+          .num_irqs = STM32F4_EXTI_NUM_PIN_LINES,                                         \
+        },                                                                                \
+    .port = &sym##_inst, .exti = (_exti), .syscfg = (_syscfg), .syscfg_clk = _syscfg_clk, \
   }
 
 #include PBL_DT_INSTANCES(st_stm32f429_pinctrl)

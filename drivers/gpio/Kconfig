@@ -38,6 +38,7 @@ config GPIO_STM32
     bool "ST STM32"
     default DT_HAS_ST_STM32F429_PINCTRL_ENABLED
     select CLK
+    select INTC
     help
       Support for the STM32F4 GPIO controller.
 
