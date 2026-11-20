@@ -69,13 +69,13 @@ extern uint32_t retained_read(uint8_t id);
 #define BOOTLOADER_VERSION_REGISTER       RTC_BKP_DR2
 #define CURRENT_TIME_REGISTER             RTC_BKP_DR3
 #define CURRENT_INTERVAL_TICKS_REGISTER   RTC_BKP_DR4
+//! Factory reset filesystem wipe pending
+#define RTC_BKP_LEGACY_FS_WIPE            RTC_BKP_DR4
 #define REBOOT_REASON_REGISTER_1          RTC_BKP_DR5
 #define REBOOT_REASON_STUCK_TASK_PC       RTC_BKP_DR6
 #define REBOOT_REASON_STUCK_TASK_LR       RTC_BKP_DR7
 #define REBOOT_REASON_STUCK_TASK_CALLBACK RTC_BKP_DR8
 // formerly REBOOT_REASON_MUTEX_PC
-//! A factory reset's filesystem wipe is under way: finish it at the next boot.
-#define RTC_BKP_LEGACY_FS_WIPE            RTC_BKP_DR10
 #define RTC_BKP_FLASH_ERASE_PROGRESS      RTC_BKP_DR11
 #define RTC_TIMEZONE_ABBR_START           RTC_BKP_DR12
 #define RTC_TIMEZONE_ABBR_END_TZID_DSTID  RTC_BKP_DR13

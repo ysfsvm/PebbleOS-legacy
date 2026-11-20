@@ -109,11 +109,11 @@ needs every stock reader checked first.
   crash-loops on its watchdog. An earlier build of this port (31/1023,
   shadow registers bypassed) left a watch without a usable recovery that way.
 - **RTC backup registers** (`include/pbl/system/rtc_registers.h`): DR0 boot
-  bits, DR1 stuck buttons, DR2 bootloader version, DR5-DR8 reboot reason,
-  DR10 factory-reset wipe marker
-  (`CONFIG_LEGACY_FACTORY_RESET_KEEPS_FIRMWARE`), DR11 erase in progress,
-  DR17-DR18 compass calibration, DR19 last app slot. DR3, DR4, DR9 and
-  DR12-DR16 are not read or written.
+  bits, DR1 stuck buttons, DR2 bootloader version, DR4 factory-reset wipe
+  marker (`CONFIG_LEGACY_FACTORY_RESET_KEEPS_FIRMWARE`; the stock firmware
+  for this watch does not use DR4), DR5-DR8 reboot reason, DR11 erase in
+  progress, DR17-DR18 compass calibration, DR19 last app slot. DR3, DR9,
+  DR10 and DR12-DR16 are not read or written.
 - **Boot bits, reboot reason, stuck buttons** (`pebble/system/bootbits.c`,
   `reboot_reason.c`): the bootloader picks the firmware or the recovery by
   the boot bits, and counts boots with each button held in DR1, which
@@ -136,9 +136,8 @@ watch.
 
 | State | Stock firmware and recovery | This firmware | Effect |
 | --- | --- | --- | --- |
-| Reboot reason | Six words, DR5-DR10: code and flags, an extra word, four words of detail | Four words, DR5-DR8: code and flags, three words of detail. DR9 is left alone | The code and flags word is the same. The detail of a reason written by one side is read one word off by the other, and stock can show a stale DR9 |
+| Reboot reason | Six words, DR5-DR10: code and flags, an extra word, four words of detail | Four words, DR5-DR8: code and flags, three words of detail. DR9 and DR10 are left alone | The code and flags word is the same. The detail of a reason written by one side is read one word off by the other, and stock can show a stale DR9 or DR10 |
 | Reboot reason codes 26-29 | Dialog boot fault, Bluetooth core dump, core dump, core dump entry failed | Bluetooth core dump, core dump, core dump entry failed, hard lockup | The side that starts next names these four reasons wrongly |
-| DR10 | Last word of the reboot reason; set to zero each time the reason is cleared at start | Marker of a file system wipe still to be done after a factory reset | A wipe that is still pending when the stock or recovery firmware starts is forgotten |
 | Time zone, DR12-DR16 | Kept here; a DR12 other than zero also means "the calendar holds UTC" | Kept in flash; the registers are neither read nor written, also not by a factory reset | A stock firmware that finds DR12 at zero takes the calendar for local time and converts it once, when the phone first sends a time zone. A time zone left by an earlier stock firmware stays in the registers |
 | RTC alarm A | Not used | The clock event without `CONFIG_TIMER_STM32_RTC_WUT`; it stays enabled in the backup domain across a reset | None known |
 | Calendar year | 2000-2037; a year outside is clamped and the calendar rewritten | 2000-2099 | None before 2038 |
