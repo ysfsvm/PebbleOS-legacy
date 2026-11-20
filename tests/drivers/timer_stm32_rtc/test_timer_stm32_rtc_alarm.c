@@ -82,8 +82,13 @@ void test_timer_stm32_rtc_alarm__init_on_stock_setup(void) {
   s_m.exti[M_EXTI_IMR / 4U] = 1U << 3;
   s_m.exti[M_EXTI_RTSR / 4U] = 1U << 3;
   s_m.exti[M_EXTI_FTSR / 4U] = (1U << 3) | M_LINE_ALARM | M_LINE_WAKEUP;
+  s_m.isr &= ~M_ISR_RSF;
+  s_m.frozen = true;
 
   prv_init_both();
+
+  cl_assert(!s_m.frozen);
+  cl_assert(s_m.isr & M_ISR_RSF);
 
   cl_assert_equal_i(m_writes(M_RTC_BASE + M_PRER), 0);
   for (int i = 0; i < s_log_len; i++) {
@@ -144,6 +149,8 @@ void test_timer_stm32_rtc_alarm__init_restores_stock_setup(void) {
   cl_assert_equal_i(s_m.isr & M_ISR_INIT, 0);
   cl_assert_equal_i(s_m.cr & (M_CR_ALRAE | M_CR_ALRAIE | M_CR_WUTE | M_CR_WUTIE), 0);
   cl_assert_equal_i(s_m.wp, 0);
+  cl_assert(!s_m.frozen);
+  cl_assert(s_m.isr & M_ISR_RSF);
 }
 
 void test_timer_stm32_rtc_alarm__init_after_backup_domain_reset(void) {
@@ -444,6 +451,44 @@ void test_timer_stm32_rtc_alarm__unfired_interrupt_at_second_boundary(void) {
   m_advance_steps(9U);
   prv_run_irq();
   cl_assert_equal_i(s_handler_calls, 1);
+}
+
+void test_timer_stm32_rtc_alarm__resync_after_stop(void) {
+  prv_init_both();
+  const uint32_t before = prv_cs_read();
+
+  m_stop(2U * 16384U);
+  pbl_irq_lock();
+  stm32_rtc_resync();
+  pbl_irq_unlock();
+  cl_assert_equal_i(prv_cs_read(), before + 512U);
+  cl_assert_equal_i(s_m.wp, 0);
+
+  prv_before_lagging_boundary(2026, 11, 20, 12, 40, 0);
+  const uint32_t at = prv_cs_read();
+  m_stop(1U);
+  pbl_irq_lock();
+  stm32_rtc_resync();
+  pbl_irq_unlock();
+  cl_assert_equal_i(prv_cs_read(), at + 1U);
+  cl_assert_equal_i(s_backward, 0);
+}
+
+void test_timer_stm32_rtc_alarm__calendar_set_waits_for_the_shadow_registers(void) {
+  uint32_t tr;
+  uint32_t dr;
+
+  prv_init_both();
+  m_advance_steps(1000U);
+  const uint32_t before = prv_cs_read();
+
+  cl_assert_equal_i(stm32_rtc_calendar_set(0x080000, 0x300601), 0);
+  cl_assert(!s_m.frozen);
+  cl_assert(s_m.isr & M_ISR_RSF);
+  cl_assert_equal_i(prv_cs_read(), before);
+  stm32_rtc_calendar_get(&tr, &dr);
+  cl_assert_equal_i(tr, 0x080000);
+  cl_assert_equal_i(dr & ~(7U << 13), 0x300601);
 }
 
 static void prv_check_alarm(int year, int mon, int mday, int hour, int min, int sec, uint32_t ssr,
