@@ -31,9 +31,11 @@ config SERVICE_CLOCK_TZ_STORAGE_FLASH
 
 config SERVICE_CLOCK_TZ_STORAGE_RETAINED
     bool "Retained registers"
-    depends on SOC_NRF52
+    depends on SOC_NRF52 || SOC_STM32F4
     help
-      Keep the timezone in retained RAM, which survives resets.
+      Keep the timezone in retained RAM, which survives resets. On the
+      STM32F4 these are the RTC backup registers, in the layout of the
+      stock firmware.
 
 endchoice
 

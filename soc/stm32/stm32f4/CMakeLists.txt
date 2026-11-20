@@ -8,6 +8,7 @@ pbl_library_sources(
   init.c
   clock.c
   idle.c
+  retained.c
   sleep.c
   stuck_buttons.c
 )
