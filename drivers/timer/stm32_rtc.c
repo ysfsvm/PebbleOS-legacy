@@ -593,8 +593,7 @@ static void prv_exit_init(void) {
 void stm32_rtc_resync(void) {
   // The shadow registers hold the last synchronized calendar: after STOP mode or an
   // initialization they are stale until the next synchronization, which RSF reports.
-  prv_modreg(STM32F4_RTC_ISR_OFFSET, STM32F4_RTC_ISR_RSF, 0U);
-  (void)prv_wait(STM32F4_RTC_ISR_RSF);
+  prv_sync();
 }
 
 int stm32_rtc_calendar_set(uint32_t tr, uint32_t dr) {

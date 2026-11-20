@@ -117,6 +117,9 @@ static struct {
   int lag_reads;
   int64_t stale_secs;
   int stale_reads;
+  bool frozen;
+  int64_t frozen_secs;
+  uint32_t frozen_ssr;
   uint32_t pwr_cr;
   uint32_t bdcr;
   uint32_t apb1enr;
@@ -227,6 +230,9 @@ static void m_wut_clock(void) {
 static void m_advance(uint32_t counts) {
   const uint32_t prediv_s = s_m.prer & 0x7fffU;
 
+  if (counts > 0U) {
+    s_m.frozen = false;
+  }
   for (uint32_t i = 0U; i < counts; i++) {
     s_m.counts++;
     const uint32_t wucksel = s_m.cr & M_CR_WUCKSEL;
@@ -254,6 +260,16 @@ static void m_advance(uint32_t counts) {
   }
 }
 
+[[maybe_unused]] static void m_stop(uint32_t counts) {
+  const int64_t secs = s_m.secs;
+  const uint32_t ssr = s_m.ssr;
+
+  m_advance(counts);
+  s_m.frozen = true;
+  s_m.frozen_secs = secs;
+  s_m.frozen_ssr = ssr;
+}
+
 [[maybe_unused]] static void m_advance_steps(uint32_t steps) {
   m_advance(steps * 64U);
 }
@@ -266,15 +282,21 @@ static uint32_t m_rtc_read(uint32_t offset) {
   m_advance(s_counts_per_access);
   switch (offset) {
     case M_TR:
+      if (s_m.frozen) {
+        return m_tr_of(s_m.frozen_secs);
+      }
       return m_tr_of((s_m.stale_reads > 0) ? s_m.stale_secs : s_m.secs);
     case M_DR:
+      if (s_m.frozen) {
+        return m_dr_of(s_m.frozen_secs);
+      }
       if (s_m.stale_reads > 0) {
         s_m.stale_reads--;
         return m_dr_of(s_m.stale_secs);
       }
       return m_dr_of(s_m.secs);
     case M_SSR:
-      return s_m.ssr;
+      return s_m.frozen ? s_m.frozen_ssr : s_m.ssr;
     case M_CR:
       return s_m.cr;
     case M_PRER:
@@ -294,6 +316,7 @@ static uint32_t m_rtc_read(uint32_t offset) {
       isr |= ((s_m.isr & M_ISR_INIT) != 0U) ? M_ISR_INITF : 0U;
       if ((s_m.isr & M_ISR_RSF) == 0U) {
         s_m.stale_reads = 0;
+        s_m.frozen = false;
       }
       s_m.isr |= M_ISR_RSF;
       return isr;
@@ -305,6 +328,9 @@ static uint32_t m_rtc_read(uint32_t offset) {
 }
 
 static void m_exit_init(void) {
+  s_m.frozen = true;
+  s_m.frozen_secs = s_m.secs;
+  s_m.frozen_ssr = s_m.ssr;
   if (s_m.init_tr_written || s_m.init_dr_written) {
     cl_assert(s_m.init_tr_written && s_m.init_dr_written);
     s_m.secs = m_secs_of(s_m.init_tr, s_m.init_dr);
