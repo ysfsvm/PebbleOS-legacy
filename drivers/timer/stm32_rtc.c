@@ -32,15 +32,11 @@
 #include <pbl/util/bits.h>
 #include <pbl/util/math.h>
 
+#include <devicetree/regs.h>
 #include <hardware/stm32f4_exti.h>
 #include <hardware/stm32f4_pwr.h>
 #include <hardware/stm32f4_rcc.h>
 #include <hardware/stm32f4_rtc.h>
-
-#define RTC_BASE_ADDR  0x40002800U
-#define PWR_BASE_ADDR  0x40007000U
-#define EXTI_BASE_ADDR 0x40013c00U
-#define RCC_BASE_ADDR  0x40023800U
 
 #define LSE_HZ 32768U
 //! Asynchronous and synchronous prescalers, as the stock firmware: LSE / 128 / 256 = 1 Hz,
@@ -108,11 +104,11 @@ bool stm32_rtc_restored_stock_config(void) {
 [[maybe_unused]] static uint32_t s_repended;
 
 static inline uint32_t prv_getreg(uint32_t offset) {
-  return pbl_readl(RTC_BASE_ADDR + offset);
+  return pbl_readl(PBL_DT_REG_RTC + offset);
 }
 
 static inline void prv_putreg(uint32_t offset, uint32_t value) {
-  pbl_writel(value, RTC_BASE_ADDR + offset);
+  pbl_writel(value, PBL_DT_REG_RTC + offset);
 }
 
 static inline void prv_modreg(uint32_t offset, uint32_t clear, uint32_t set) {
@@ -120,19 +116,19 @@ static inline void prv_modreg(uint32_t offset, uint32_t clear, uint32_t set) {
 }
 
 static inline void prv_exti_putreg(uint32_t offset, uint32_t value) {
-  pbl_writel(value, EXTI_BASE_ADDR + offset);
+  pbl_writel(value, PBL_DT_REG_EXTI + offset);
 }
 
 static inline void prv_exti_modreg(uint32_t offset, uint32_t clear, uint32_t set) {
-  pbl_writel((pbl_readl(EXTI_BASE_ADDR + offset) & ~clear) | set, EXTI_BASE_ADDR + offset);
+  pbl_writel((pbl_readl(PBL_DT_REG_EXTI + offset) & ~clear) | set, PBL_DT_REG_EXTI + offset);
 }
 
 static inline uint32_t prv_bdcr_get(void) {
-  return pbl_readl(RCC_BASE_ADDR + STM32F4_RCC_BDCR_OFFSET);
+  return pbl_readl(PBL_DT_REG_RCC + STM32F4_RCC_BDCR_OFFSET);
 }
 
 static inline void prv_bdcr_put(uint32_t value) {
-  pbl_writel(value, RCC_BASE_ADDR + STM32F4_RCC_BDCR_OFFSET);
+  pbl_writel(value, PBL_DT_REG_RCC + STM32F4_RCC_BDCR_OFFSET);
 }
 
 static void prv_wp_unlock(void) {
@@ -641,8 +637,8 @@ static int prv_init(const struct pbl_device *dev) {
   if (!s_started) {
     // Backup domain write access.
     soc_stm32_clock_set(SOC_STM32_APB1, STM32F4_RCC_APB1ENR_PWREN, true);
-    pbl_writel(pbl_readl(PWR_BASE_ADDR + STM32F4_PWR_CR_OFFSET) | STM32F4_PWR_CR_DBP,
-               PWR_BASE_ADDR + STM32F4_PWR_CR_OFFSET);
+    pbl_writel(pbl_readl(PBL_DT_REG_PWRCFG + STM32F4_PWR_CR_OFFSET) | STM32F4_PWR_CR_DBP,
+               PBL_DT_REG_PWRCFG + STM32F4_PWR_CR_OFFSET);
 
     prv_lse_start();
     if ((prv_bdcr_get() & STM32F4_RCC_BDCR_RTCEN) == 0U) {

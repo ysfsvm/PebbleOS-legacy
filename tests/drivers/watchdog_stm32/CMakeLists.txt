@@ -5,6 +5,7 @@ pbl_clar_test(test_watchdog_stm32
   OVERRIDES
     stm32f4_mmio
   INCLUDES
+    tests/drivers/watchdog_stm32/include
     soc/stm32/stm32f4
   DEFINES
     PBL_NO_LINKER_SCRIPT

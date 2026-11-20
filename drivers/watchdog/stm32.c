@@ -10,23 +10,21 @@
 #include <pbl/kernel/mmio.h>
 #include <pbl/task_wdt/hardlockup.h>
 
+#include <devicetree/regs.h>
 #include <hardware/stm32f4_dbgmcu.h>
 #include <hardware/stm32f4_iwdg.h>
 #include <hardware/stm32f4_rcc.h>
-
-#define IWDG_BASE_ADDR 0x40003000U
-#define RCC_BASE_ADDR  0x40023800U
 
 // LSI ~32 kHz / 64 = 500 Hz; 0xfff ticks is ~8 s, matching the bootloader.
 #define IWDG_PRESCALER STM32F4_IWDG_PR_DIV64
 #define IWDG_RELOAD    0xfffU
 
 static inline void prv_iwdg_putreg(uint32_t offset, uint32_t value) {
-  pbl_writel(value, IWDG_BASE_ADDR + offset);
+  pbl_writel(value, PBL_DT_REG_IWDG + offset);
 }
 
 static inline uint32_t prv_csr(void) {
-  return pbl_readl(RCC_BASE_ADDR + STM32F4_RCC_CSR_OFFSET);
+  return pbl_readl(PBL_DT_REG_RCC + STM32F4_RCC_CSR_OFFSET);
 }
 
 void watchdog_init(void) {
@@ -74,7 +72,7 @@ McuRebootReason watchdog_get_reset_flag(void) {
 
 McuRebootReason watchdog_clear_reset_flag(void) {
   const McuRebootReason reason = watchdog_get_reset_flag();
-  const uintptr_t csr = RCC_BASE_ADDR + STM32F4_RCC_CSR_OFFSET;
+  const uintptr_t csr = PBL_DT_REG_RCC + STM32F4_RCC_CSR_OFFSET;
   pbl_writel(pbl_readl(csr) | STM32F4_RCC_CSR_RMVF, csr);
   return reason;
 }

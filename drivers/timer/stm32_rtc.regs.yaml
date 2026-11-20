@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
+# SPDX-License-Identifier: Apache-2.0
+
+# System timer: backup domain, RTC clock and RTC EXTI lines
+config: TIMER_STM32_RTC
+labels:
+  - rtc
+  - pwrcfg
+  - exti
+  - rcc
