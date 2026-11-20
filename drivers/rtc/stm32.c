@@ -13,7 +13,9 @@
 #include <pbl/drivers/rtc/stm32.h>
 #include <pbl/drivers/timer/stm32_rtc.h>
 #include <pbl/services/time.h>
-#include <pbl/soc/stm32/cmsis.h>
+#include <pbl/util/bits.h>
+
+#include <hardware/stm32f4_rtc.h>
 
 static uint32_t prv_bcd2bin(uint32_t bcd) {
   return ((bcd >> 4) * 10U) + (bcd & 0xFU);
@@ -31,12 +33,12 @@ static int prv_get_time(const struct pbl_rtc *rtc, time_t *t) {
   stm32_rtc_calendar_get_subsec(&tr, &dr, &subsec);
 
   struct pbl_tm tm = {
-    .tm_sec = (int)prv_bcd2bin(tr & (RTC_TR_ST | RTC_TR_SU)),
-    .tm_min = (int)prv_bcd2bin((tr & (RTC_TR_MNT | RTC_TR_MNU)) >> 8),
-    .tm_hour = (int)prv_bcd2bin((tr & (RTC_TR_HT | RTC_TR_HU)) >> 16),
-    .tm_mday = (int)prv_bcd2bin(dr & (RTC_DR_DT | RTC_DR_DU)),
-    .tm_mon = (int)prv_bcd2bin((dr & (RTC_DR_MT | RTC_DR_MU)) >> 8) - 1,
-    .tm_year = (int)prv_bcd2bin((dr & (RTC_DR_YT | RTC_DR_YU)) >> 16) + 100,
+    .tm_sec = (int)prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_TR_SEC_MASK, tr)),
+    .tm_min = (int)prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_TR_MIN_MASK, tr)),
+    .tm_hour = (int)prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_TR_HOUR_MASK, tr)),
+    .tm_mday = (int)prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_DR_DAY_MASK, dr)),
+    .tm_mon = (int)prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_DR_MONTH_MASK, dr)) - 1,
+    .tm_year = (int)prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_DR_YEAR_MASK, dr)) + 100,
   };
 
   // Another firmware may have left an invalid date behind.
@@ -60,12 +62,15 @@ static int prv_set_time(const struct pbl_rtc *rtc, time_t t) {
     return -EINVAL;
   }
 
-  const uint32_t tr = (prv_bin2bcd((uint32_t)tm.tm_hour) << 16) |
-                      (prv_bin2bcd((uint32_t)tm.tm_min) << 8) | prv_bin2bcd((uint32_t)tm.tm_sec);
-  const uint32_t dr = (prv_bin2bcd((uint32_t)(tm.tm_year % 100)) << 16) |
-                      ((uint32_t)((tm.tm_wday == 0) ? 7 : tm.tm_wday) << 13) |
-                      (prv_bin2bcd((uint32_t)(tm.tm_mon + 1)) << 8) |
-                      prv_bin2bcd((uint32_t)tm.tm_mday);
+  const uint32_t tr = PBL_FIELD_PREP(STM32F4_RTC_TR_HOUR_MASK, prv_bin2bcd((uint32_t)tm.tm_hour)) |
+                      PBL_FIELD_PREP(STM32F4_RTC_TR_MIN_MASK, prv_bin2bcd((uint32_t)tm.tm_min)) |
+                      PBL_FIELD_PREP(STM32F4_RTC_TR_SEC_MASK, prv_bin2bcd((uint32_t)tm.tm_sec));
+  // Weekday 1-7 from Monday
+  const uint32_t dr =
+      PBL_FIELD_PREP(STM32F4_RTC_DR_YEAR_MASK, prv_bin2bcd((uint32_t)(tm.tm_year % 100))) |
+      PBL_FIELD_PREP(STM32F4_RTC_DR_WDU_MASK, (uint32_t)((tm.tm_wday == 0) ? 7 : tm.tm_wday)) |
+      PBL_FIELD_PREP(STM32F4_RTC_DR_MONTH_MASK, prv_bin2bcd((uint32_t)(tm.tm_mon + 1))) |
+      PBL_FIELD_PREP(STM32F4_RTC_DR_DAY_MASK, prv_bin2bcd((uint32_t)tm.tm_mday));
 
   return stm32_rtc_calendar_set(tr, dr);
 }
