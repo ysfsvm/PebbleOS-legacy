@@ -18,6 +18,11 @@ endchoice
 config BT_ID_ADDR_PREFER_PUBLIC
     default y
 
+# Time zone in the stock firmware's layout
+choice SERVICE_CLOCK_TZ_STORAGE
+    default SERVICE_CLOCK_TZ_STORAGE_RETAINED
+endchoice
+
 # SRAM has room for NimBLE's buffer pools (about 9K), which grows the
 # kernel heap in core-coupled RAM by as much.
 config NIMBLE_POOLS_SRAM

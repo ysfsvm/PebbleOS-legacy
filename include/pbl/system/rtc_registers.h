@@ -64,6 +64,10 @@ extern uint32_t retained_read(uint8_t id);
 #define SLOT_OF_LAST_LAUNCHED_APP         10
 
 #else
+//! The RTC backup registers, by number.
+extern void retained_write(uint8_t id, uint32_t value);
+extern uint32_t retained_read(uint8_t id);
+
 #define RTC_BKP_BOOTBIT_DR                RTC_BKP_DR0
 #define STUCK_BUTTON_REGISTER             RTC_BKP_DR1
 #define BOOTLOADER_VERSION_REGISTER       RTC_BKP_DR2
@@ -77,11 +81,11 @@ extern uint32_t retained_read(uint8_t id);
 #define REBOOT_REASON_STUCK_TASK_CALLBACK RTC_BKP_DR8
 // formerly REBOOT_REASON_MUTEX_PC
 #define RTC_BKP_FLASH_ERASE_PROGRESS      RTC_BKP_DR11
-#define RTC_TIMEZONE_ABBR_START           RTC_BKP_DR12
-#define RTC_TIMEZONE_ABBR_END_TZID_DSTID  RTC_BKP_DR13
-#define RTC_TIMEZONE_GMTOFFSET            RTC_BKP_DR14
-#define RTC_TIMEZONE_DST_START            RTC_BKP_DR15
-#define RTC_TIMEZONE_DST_END              RTC_BKP_DR16
+#define RTC_TIMEZONE_ABBR_START           12
+#define RTC_TIMEZONE_ABBR_END_TZID_DSTID  13
+#define RTC_TIMEZONE_GMTOFFSET            14
+#define RTC_TIMEZONE_DST_START            15
+#define RTC_TIMEZONE_DST_END              16
 #define MAG_XY_CORRECTION_VALS            RTC_BKP_DR17
 #define MAG_Z_CORRECTION_VAL              RTC_BKP_DR18
 #define SLOT_OF_LAST_LAUNCHED_APP         RTC_BKP_DR19

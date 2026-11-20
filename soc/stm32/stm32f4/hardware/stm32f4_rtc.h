@@ -17,6 +17,8 @@
 #define STM32F4_RTC_WPR_OFFSET      0x24
 #define STM32F4_RTC_SSR_OFFSET      0x28
 #define STM32F4_RTC_ALRMASSR_OFFSET 0x44
+/* Backup registers 0 to 19 */
+#define STM32F4_RTC_BKPR_OFFSET(n) (0x50 + 4 * (n))
 
 /* TR, BCD; ALRMAR has the same time fields */
 #define STM32F4_RTC_TR_SEC_MASK  PBL_GENMASK(6, 0)
