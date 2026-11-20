@@ -97,8 +97,9 @@ range in the chip at every boot.
 
 The stock bootloader, the stock recovery firmware (PRF) and any stock
 firmware installed again read state that outlives this firmware. Each item,
-and the partition table above, keeps the stock layout and meaning; changing
-one needs every stock reader checked first.
+and the partition table above, keeps the stock layout and meaning, except
+where [](#differences-from-the-stock-layout) says otherwise; changing one
+needs every stock reader checked first.
 
 - **RTC configuration.** Prescalers 127/255 (256 sub-second steps),
   24-hour format, shadow registers in use, LSE in bypass mode, UTC calendar
@@ -108,10 +109,11 @@ one needs every stock reader checked first.
   crash-loops on its watchdog. An earlier build of this port (31/1023,
   shadow registers bypassed) left a watch without a usable recovery that way.
 - **RTC backup registers** (`include/pbl/system/rtc_registers.h`): DR0 boot
-  bits, DR1 stuck buttons, DR2 bootloader version, DR3-DR4 time and
-  interval, DR5-DR8 reboot reason, DR10 factory-reset wipe marker
+  bits, DR1 stuck buttons, DR2 bootloader version, DR5-DR8 reboot reason,
+  DR10 factory-reset wipe marker
   (`CONFIG_LEGACY_FACTORY_RESET_KEEPS_FIRMWARE`), DR11 erase in progress,
-  DR12-DR16 time zone, DR17-DR18 compass calibration, DR19 last app slot.
+  DR17-DR18 compass calibration, DR19 last app slot. DR3, DR4, DR9 and
+  DR12-DR16 are not read or written.
 - **Boot bits, reboot reason, stuck buttons** (`pebble/system/bootbits.c`,
   `reboot_reason.c`): the bootloader picks the firmware or the recovery by
   the boot bits, and counts boots with each button held in DR1, which
@@ -123,6 +125,25 @@ one needs every stock reader checked first.
   charger included (4.30 V, auto stop and restart).
 - **Firmware checksum.** Staged firmware and the stock recovery image use
   the legacy STM32 CRC (`CONFIG_FIRMWARE_LEGACY_CRC`).
+
+(differences-from-the-stock-layout)=
+### Differences from the stock layout
+
+The stock firmware and the recovery firmware see these differences when
+they start after this firmware, and this firmware sees them when it starts
+after one of them. They come from reading both sources; none was run on a
+watch.
+
+| State | Stock firmware and recovery | This firmware | Effect |
+| --- | --- | --- | --- |
+| Reboot reason | Six words, DR5-DR10: code and flags, an extra word, four words of detail | Four words, DR5-DR8: code and flags, three words of detail. DR9 is left alone | The code and flags word is the same. The detail of a reason written by one side is read one word off by the other, and stock can show a stale DR9 |
+| Reboot reason codes 26-29 | Dialog boot fault, Bluetooth core dump, core dump, core dump entry failed | Bluetooth core dump, core dump, core dump entry failed, hard lockup | The side that starts next names these four reasons wrongly |
+| DR10 | Last word of the reboot reason; set to zero each time the reason is cleared at start | Marker of a file system wipe still to be done after a factory reset | A wipe that is still pending when the stock or recovery firmware starts is forgotten |
+| Time zone, DR12-DR16 | Kept here; a DR12 other than zero also means "the calendar holds UTC" | Kept in flash; the registers are neither read nor written, also not by a factory reset | A stock firmware that finds DR12 at zero takes the calendar for local time and converts it once, when the phone first sends a time zone. A time zone left by an earlier stock firmware stays in the registers |
+| RTC alarm A | Not used | The clock event without `CONFIG_TIMER_STM32_RTC_WUT`; it stays enabled in the backup domain across a reset | None known |
+| Calendar year | 2000-2037; a year outside is clamped and the calendar rewritten | 2000-2099 | None before 2038 |
+| Calendar weekday | Zero | 1-7 | None known; the stock time conversion ignores it |
+| Seconds read from the calendar | Truncated | Rounded to the nearest second | Up to one second apart |
 
 After three failed starts before the firmware marks itself stable, when
 the firmware asks, or with Back, Select and Up held for 5 s, the bootloader
