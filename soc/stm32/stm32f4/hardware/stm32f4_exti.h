@@ -12,3 +12,7 @@
 
 /* Lines 0-15: pins */
 #define STM32F4_EXTI_NUM_PIN_LINES 16U
+
+/* RTC alarm and wakeup lines */
+#define STM32F4_EXTI_LINE_RTC_ALARM  (1U << 17)
+#define STM32F4_EXTI_LINE_RTC_WAKEUP (1U << 22)
