@@ -114,6 +114,9 @@ static struct {
   bool init_dr_written;
   uint32_t init_tr;
   uint32_t init_dr;
+  int lag_reads;
+  int64_t stale_secs;
+  int stale_reads;
   uint32_t pwr_cr;
   uint32_t bdcr;
   uint32_t apb1enr;
@@ -124,6 +127,8 @@ static struct {
 
 static uint32_t s_counts_per_access;
 static bool s_irq_pending[64];
+static int s_locks;
+static bool s_masked_unlocks_only;
 
 static uint32_t m_bcd(uint32_t v) {
   return ((v / 10U) << 4) | (v % 10U);
@@ -234,6 +239,10 @@ static void m_advance(uint32_t counts) {
     s_m.sub = 0U;
     if (s_m.ssr == 0U || s_m.ssr > prediv_s) {
       s_m.ssr = prediv_s;
+      if (s_m.lag_reads > 0) {
+        s_m.stale_secs = s_m.secs;
+        s_m.stale_reads = s_m.lag_reads;
+      }
       s_m.secs++;
       if (wucksel >= 4U) {
         m_wut_clock();
@@ -257,8 +266,12 @@ static uint32_t m_rtc_read(uint32_t offset) {
   m_advance(s_counts_per_access);
   switch (offset) {
     case M_TR:
-      return m_tr_of(s_m.secs);
+      return m_tr_of((s_m.stale_reads > 0) ? s_m.stale_secs : s_m.secs);
     case M_DR:
+      if (s_m.stale_reads > 0) {
+        s_m.stale_reads--;
+        return m_dr_of(s_m.stale_secs);
+      }
       return m_dr_of(s_m.secs);
     case M_SSR:
       return s_m.ssr;
@@ -279,7 +292,9 @@ static uint32_t m_rtc_read(uint32_t offset) {
       isr |= ((s_m.cr & M_CR_ALRAE) == 0U) ? M_ISR_ALRAWF : 0U;
       isr |= ((s_m.cr & M_CR_WUTE) == 0U) ? M_ISR_WUTWF : 0U;
       isr |= ((s_m.isr & M_ISR_INIT) != 0U) ? M_ISR_INITF : 0U;
-      // The next synchronization sets RSF again: the read after this one sees it
+      if ((s_m.isr & M_ISR_RSF) == 0U) {
+        s_m.stale_reads = 0;
+      }
       s_m.isr |= M_ISR_RSF;
       return isr;
     }
@@ -295,6 +310,7 @@ static void m_exit_init(void) {
     s_m.secs = m_secs_of(s_m.init_tr, s_m.init_dr);
     s_m.ssr = s_m.prer & 0x7fffU;
     s_m.sub = 0U;
+    s_m.stale_reads = 0;
   }
   s_m.init_tr_written = false;
   s_m.init_dr_written = false;
@@ -305,6 +321,8 @@ static void m_rtc_write(uint32_t offset, uint32_t val) {
   m_advance(s_counts_per_access);
   cl_assert_((s_m.pwr_cr & M_PWR_CR_DBP) != 0U, "RTC write before backup domain access");
   if (offset == M_WPR) {
+    cl_assert_(val != 0xcaU || !s_masked_unlocks_only || s_locks > 0,
+               "write protection turned off with interrupts unmasked");
     s_m.wp = (val == 0xcaU) ? 1 : ((val == 0x53U && s_m.wp == 1) ? 2 : 0);
     return;
   }
@@ -428,5 +446,6 @@ static void m_reset_stock(void) {
   s_m.wutr = 0xffffU;
   m_set_calendar(2026, 11, 20, 12, 34, 56, 200U);
   s_counts_per_access = 0U;
+  s_masked_unlocks_only = false;
   s_log_len = 0;
 }

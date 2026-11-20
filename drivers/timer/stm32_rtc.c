@@ -166,10 +166,20 @@ static void prv_log_mixed(void *data) {
               s_mixed, s_mixed_regs[0], s_mixed_regs[1], s_mixed_regs[2], s_mixed_regs[3]);
 }
 
+static int prv_wait(uint32_t isr_flag);
+
+//! Wait for a shadow register synchronization.
+static void prv_sync(void) {
+  prv_wp_unlock();
+  prv_putreg(STM32F4_RTC_ISR_OFFSET, ISR_CLEAR(STM32F4_RTC_ISR_RSF));
+  prv_wp_lock();
+  (void)prv_wait(STM32F4_RTC_ISR_RSF);
+}
+
 //! Read the calendar's shadow registers. Reading SSR (or TR) should freeze the set until DR is
 //! read, so that the three values belong to one instant; a reading that mixes two is off by
 //! up to a second. Read until two in a row are of the same second. Interrupts masked.
-static void prv_calendar_read(uint32_t *ssr, uint32_t *tr, uint32_t *dr) {
+static void prv_calendar_read_shadow(uint32_t *ssr, uint32_t *tr, uint32_t *dr) {
   uint32_t prev_ssr = prv_getreg(STM32F4_RTC_SSR_OFFSET);
   uint32_t prev_tr = prv_getreg(STM32F4_RTC_TR_OFFSET);
   uint32_t prev_dr = prv_getreg(STM32F4_RTC_DR_OFFSET);
@@ -201,6 +211,19 @@ static void prv_calendar_read(uint32_t *ssr, uint32_t *tr, uint32_t *dr) {
     prev_tr = *tr;
     prev_dr = *dr;
   }
+}
+
+//! Read the calendar, interrupts masked.
+static void prv_calendar_read(uint32_t *ssr, uint32_t *tr, uint32_t *dr) {
+  prv_calendar_read_shadow(ssr, tr, dr);
+  if (*ssr != PREDIV_S) {
+    return;
+  }
+
+  prv_sync();
+  *ssr = prv_getreg(STM32F4_RTC_SSR_OFFSET);
+  *tr = prv_getreg(STM32F4_RTC_TR_OFFSET);
+  *dr = prv_getreg(STM32F4_RTC_DR_OFFSET);
 }
 
 //! Calendar count in 256 Hz cycles since 2000. Interrupts masked.
@@ -424,7 +447,13 @@ static void prv_alarm_isr(void) {
   prv_exti_putreg(STM32F4_EXTI_PR_OFFSET, STM32F4_EXTI_LINE_RTC_ALARM);
 
   // Also runs when set_next pended the interrupt itself.
-  if (s_armed && (fired || (prv_calendar_count() >= s_deadline))) {
+  bool expired = fired;
+  if (s_armed && !expired) {
+    pbl_irq_lock();
+    expired = prv_calendar_count() >= s_deadline;
+    pbl_irq_unlock();
+  }
+  if (s_armed && expired) {
     s_armed = false;
     pbl_clockevent_handler(&s_rtc_ce);
   }
@@ -447,6 +476,15 @@ static const struct pbl_clockevent s_rtc_ce =
 
 const struct pbl_clockevent *const pbl_system_clockevent = &s_rtc_ce;
 
+//! Stop the timer from its handler.
+static void prv_wakeup_stop(void) {
+  pbl_irq_lock();
+  prv_wp_unlock();
+  prv_wakeup_disable();
+  prv_wp_lock();
+  pbl_irq_unlock();
+}
+
 static void prv_isr(void) {
   // Acknowledge the line first: a timer that expires after the check below raises it again.
   prv_exti_putreg(STM32F4_EXTI_PR_OFFSET, STM32F4_EXTI_LINE_RTC_WAKEUP);
@@ -464,9 +502,7 @@ static void prv_isr(void) {
   prv_putreg(STM32F4_RTC_ISR_OFFSET, ISR_CLEAR(STM32F4_RTC_ISR_WUTF));
 #else
   // One shot: the timer would reload and run again.
-  prv_wp_unlock();
-  prv_wakeup_disable();
-  prv_wp_lock();
+  prv_wakeup_stop();
 #endif
 
   if (s_armed) {
@@ -475,9 +511,7 @@ static void prv_isr(void) {
   }
 
   if (!s_armed) {
-    prv_wp_unlock();
-    prv_wakeup_disable();
-    prv_wp_lock();
+    prv_wakeup_stop();
   }
 }
 

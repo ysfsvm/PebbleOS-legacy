@@ -33,6 +33,7 @@ static void prv_reset_driver(void) {
 static void prv_init_both(void) {
   cl_assert_equal_i(prv_init(&s_rtc_cs.dev), 0);
   cl_assert_equal_i(prv_init(&s_rtc_ce.dev), 0);
+  s_masked_unlocks_only = true;
 }
 
 static uint32_t prv_cs_read(void) {
@@ -280,6 +281,169 @@ void test_timer_stm32_rtc_alarm__calendar_set_keeps_clock_source(void) {
   m_advance_steps(256U);
   cl_assert_equal_i(prv_cs_read(), before + 556U);
   cl_assert_equal_i(s_backward, 0);
+}
+
+static void prv_before_lagging_boundary(int year, int mon, int mday, int hour, int min, int sec) {
+  m_set_calendar(year, mon, mday, hour, min, sec, 0U);
+  s_m.sub = 63U;
+  s_m.lag_reads = 8;
+}
+
+static void prv_at_lagging_boundary(void) {
+  prv_before_lagging_boundary(2026, 11, 20, 12, 34, 56);
+}
+
+void test_timer_stm32_rtc_alarm__calendar_at_second_boundary(void) {
+  uint32_t tr;
+  uint32_t dr;
+  uint32_t subsec;
+
+  prv_init_both();
+  prv_at_lagging_boundary();
+  m_advance(1U);
+
+  stm32_rtc_calendar_get_subsec(&tr, &dr, &subsec);
+  cl_assert_equal_i(tr, 0x123457);
+  cl_assert_equal_i(subsec, 0);
+  cl_assert_equal_i(s_m.wp, 0);
+  stm32_rtc_calendar_get(&tr, &dr);
+  cl_assert_equal_i(tr, 0x123457);
+  m_assert_eq64(prv_count(), m_count());
+}
+
+void test_timer_stm32_rtc_alarm__calendar_at_minute_hour_and_day_boundary(void) {
+  uint32_t tr;
+  uint32_t dr;
+  uint32_t subsec;
+
+  prv_init_both();
+
+  prv_before_lagging_boundary(2026, 11, 20, 12, 34, 59);
+  m_advance(1U);
+  stm32_rtc_calendar_get_subsec(&tr, &dr, &subsec);
+  cl_assert_equal_i(tr, 0x123500);
+  cl_assert_equal_i(subsec, 0);
+
+  prv_before_lagging_boundary(2026, 11, 20, 12, 59, 59);
+  m_advance(1U);
+  stm32_rtc_calendar_get_subsec(&tr, &dr, &subsec);
+  cl_assert_equal_i(tr, 0x130000);
+  cl_assert_equal_i(dr & ~(7U << 13), 0x261120);
+
+  prv_before_lagging_boundary(2026, 12, 31, 23, 59, 59);
+  const uint64_t before = prv_count();
+  m_advance(1U);
+  stm32_rtc_calendar_get_subsec(&tr, &dr, &subsec);
+  cl_assert_equal_i(tr, 0x000000);
+  cl_assert_equal_i(dr & ~(7U << 13), 0x270101);
+  cl_assert_equal_i(subsec, 0);
+  m_assert_eq64(prv_count(), before + 1U);
+  m_assert_eq64(prv_count(), m_count());
+}
+
+void test_timer_stm32_rtc_alarm__clock_source_at_second_boundary(void) {
+  prv_init_both();
+  prv_at_lagging_boundary();
+  const uint32_t before = prv_cs_read();
+
+  m_advance(1U);
+  cl_assert_equal_i(prv_cs_read(), before + 1U);
+  for (uint32_t i = 0U; i < 4U; i++) {
+    cl_assert_equal_i(prv_cs_read(), before + 1U);
+  }
+  m_advance_steps(1U);
+  cl_assert_equal_i(prv_cs_read(), before + 2U);
+  cl_assert_equal_i(s_backward, 0);
+  cl_assert_equal_i(s_mixed, 0);
+}
+
+void test_timer_stm32_rtc_alarm__boundary_reading_adds_nothing(void) {
+  uint32_t tr;
+  uint32_t dr;
+  uint32_t subsec;
+
+  prv_init_both();
+
+  m_set_calendar(2026, 11, 20, 12, 34, 57, 255U);
+  const uint32_t before = prv_cs_read();
+  stm32_rtc_calendar_get_subsec(&tr, &dr, &subsec);
+  cl_assert_equal_i(tr, 0x123457);
+  cl_assert_equal_i(subsec, 0);
+  cl_assert_equal_i(prv_cs_read(), before);
+
+  m_advance_steps(100U);
+  cl_assert_equal_i(stm32_rtc_calendar_set(0x235959, 0x261231), 0);
+  cl_assert_equal_i(s_m.ssr, 255);
+  cl_assert_equal_i(prv_cs_read(), before + 100U);
+  stm32_rtc_calendar_get_subsec(&tr, &dr, &subsec);
+  cl_assert_equal_i(tr, 0x235959);
+  cl_assert_equal_i(dr & ~(7U << 13), 0x261231);
+  cl_assert_equal_i(s_backward, 0);
+}
+
+void test_timer_stm32_rtc_alarm__boundary_reading_keeps_event_flags(void) {
+  prv_init_both();
+  m_set_calendar(2026, 11, 20, 12, 34, 56, 3U);
+  prv_arm(4U);
+  m_advance_steps(4U);
+  cl_assert_equal_i(s_m.ssr, 255);
+  s_m.isr |= M_ISR_WUTF;
+
+  s_log_len = 0;
+  (void)prv_cs_read();
+  cl_assert(m_writes(M_RTC_BASE + M_ISR) > 0);
+  cl_assert_equal_i(s_m.isr & (M_ISR_ALRAF | M_ISR_WUTF), M_ISR_ALRAF | M_ISR_WUTF);
+  cl_assert(s_irq_pending[M_IRQ_ALARM]);
+
+  prv_run_irq();
+  cl_assert_equal_i(s_handler_calls, 1);
+}
+
+void test_timer_stm32_rtc_alarm__alarm_at_second_boundary(void) {
+  prv_init_both();
+  prv_at_lagging_boundary();
+  m_advance(1U);
+  const uint64_t target = m_count() + 10U;
+
+  prv_arm(10U);
+  cl_assert_equal_i(s_m.alrmar, (1U << 31) | 0x123457);
+  cl_assert_equal_i(s_m.alrmassr, (8U << 24) | 245U);
+  cl_assert_equal_i(s_m.wp, 0);
+  cl_assert(!s_irq_pending[M_IRQ_ALARM]);
+  m_advance_steps(10U);
+  cl_assert(s_irq_pending[M_IRQ_ALARM]);
+  m_assert_eq64(m_count(), target);
+  prv_run_irq();
+  cl_assert_equal_i(s_handler_calls, 1);
+}
+
+void test_timer_stm32_rtc_alarm__alarm_at_midnight_boundary(void) {
+  prv_init_both();
+  prv_before_lagging_boundary(2026, 12, 31, 23, 59, 59);
+  m_advance(1U);
+
+  prv_arm(3U);
+  cl_assert_equal_i(s_m.alrmar, (1U << 31) | 0x000000);
+  cl_assert_equal_i(s_m.alrmassr, (8U << 24) | 252U);
+  cl_assert(!s_irq_pending[M_IRQ_ALARM]);
+  m_advance_steps(3U);
+  prv_run_irq();
+  cl_assert_equal_i(s_handler_calls, 1);
+}
+
+void test_timer_stm32_rtc_alarm__unfired_interrupt_at_second_boundary(void) {
+  prv_init_both();
+  prv_at_lagging_boundary();
+  prv_arm(10U);
+  m_advance(1U);
+
+  pbl_isr_41();
+  cl_assert_equal_i(s_handler_calls, 0);
+  cl_assert_equal_i(s_m.wp, 0);
+
+  m_advance_steps(9U);
+  prv_run_irq();
+  cl_assert_equal_i(s_handler_calls, 1);
 }
 
 static void prv_check_alarm(int year, int mon, int mday, int hour, int min, int sec, uint32_t ssr,
