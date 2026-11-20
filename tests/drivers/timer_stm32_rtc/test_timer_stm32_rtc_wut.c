@@ -32,6 +32,7 @@ static void prv_reset_driver(void) {
 static void prv_init_both(void) {
   cl_assert_equal_i(prv_init(&s_rtc_cs.dev), 0);
   cl_assert_equal_i(prv_init(&s_rtc_ce.dev), 0);
+  s_masked_unlocks_only = true;
 }
 
 static void prv_arm(uint32_t delta) {
@@ -204,6 +205,27 @@ void test_timer_stm32_rtc_wut__set_next_drops_expired_event(void) {
   cl_assert_equal_i(prv_counts_to_event(100U), 64);
   prv_run_irq();
   cl_assert_equal_i(s_handler_calls, 1);
+}
+
+void test_timer_stm32_rtc_wut__boundary_reading_keeps_the_event(void) {
+  prv_init_both();
+  m_set_calendar(2026, 11, 20, 12, 34, 56, 0U);
+  s_m.sub = 48U;
+  prv_arm(16U);
+  cl_assert_equal_i(prv_counts_to_event(100U), 16);
+  cl_assert_equal_i(s_m.ssr, 255);
+
+  s_log_len = 0;
+  pbl_irq_lock();
+  (void)s_rtc_cs.ops->read(&s_rtc_cs);
+  pbl_irq_unlock();
+  cl_assert(m_writes(M_RTC_BASE + M_ISR) > 0);
+  cl_assert(s_m.isr & M_ISR_WUTF);
+  cl_assert_equal_i(s_m.wp, 0);
+
+  prv_run_irq();
+  cl_assert_equal_i(s_handler_calls, 1);
+  cl_assert_equal_i(s_stale_irqs, 0);
 }
 
 void test_timer_stm32_rtc_wut__event_check(void) {

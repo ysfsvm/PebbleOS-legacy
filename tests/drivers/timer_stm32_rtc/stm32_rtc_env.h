@@ -16,7 +16,6 @@
 PBL_DEVICE_CLASS_DEFINE(pbl_clocksource_class, "clocksource");
 PBL_DEVICE_CLASS_DEFINE(pbl_clockevent_class, "clockevent");
 
-static int s_locks;
 static int s_handler_calls;
 static int s_work_calls;
 static uint32_t s_cs_hz;
@@ -76,7 +75,9 @@ static void prv_on_event(void);
 void pbl_clockevent_handler(const struct pbl_clockevent *ce) {
   cl_assert(ce == pbl_system_clockevent);
   s_handler_calls++;
+  pbl_irq_lock();
   prv_on_event();
+  pbl_irq_unlock();
 }
 
 void pbl_isr_3(void);
