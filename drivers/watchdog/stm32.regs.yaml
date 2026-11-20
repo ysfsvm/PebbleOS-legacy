@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
+# SPDX-License-Identifier: Apache-2.0
+
+# Fed from early SoC init
+config: WATCHDOG_STM32
+labels:
+  - iwdg
+  - rcc

@@ -5,6 +5,7 @@ pbl_clar_test(test_timer_stm32_rtc_alarm
   OVERRIDES
     stm32f4_mmio
   INCLUDES
+    tests/drivers/timer_stm32_rtc/include
     soc/stm32/stm32f4
   DEFINES
     PBL_NO_LINKER_SCRIPT
@@ -19,6 +20,7 @@ pbl_clar_test(test_timer_stm32_rtc_wut
   OVERRIDES
     stm32f4_mmio
   INCLUDES
+    tests/drivers/timer_stm32_rtc/include
     soc/stm32/stm32f4
   DEFINES
     PBL_NO_LINKER_SCRIPT

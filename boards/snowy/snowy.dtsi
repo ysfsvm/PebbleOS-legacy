@@ -136,3 +136,12 @@
 	uart-has-rtscts;
 	status = "disabled";
 };
+
+// System timer and wall clock
+&rtc {
+	status = "okay";
+};
+
+&iwdg {
+	status = "okay";
+};
