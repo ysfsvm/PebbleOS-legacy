@@ -25,13 +25,22 @@
 #include <pbl/drivers/timer/stm32_rtc.h>
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/irq.h>
+#include <pbl/kernel/mmio.h>
 #include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/stm32/clock.h>
-#include <pbl/soc/stm32/cmsis.h>
+#include <pbl/util/bits.h>
 #include <pbl/util/math.h>
 
-#define STM32_RTC ((RTC_TypeDef *)RTC_BASE)
+#include <hardware/stm32f4_exti.h>
+#include <hardware/stm32f4_pwr.h>
+#include <hardware/stm32f4_rcc.h>
+#include <hardware/stm32f4_rtc.h>
+
+#define RTC_BASE_ADDR  0x40002800U
+#define PWR_BASE_ADDR  0x40007000U
+#define EXTI_BASE_ADDR 0x40013c00U
+#define RCC_BASE_ADDR  0x40023800U
 
 #define LSE_HZ 32768U
 //! Asynchronous and synchronous prescalers, as the stock firmware: LSE / 128 / 256 = 1 Hz,
@@ -39,6 +48,9 @@
 #define PREDIV_A  127U
 #define PREDIV_S  255U
 #define SUBSEC_HZ (PREDIV_S + 1U)
+#define PRER_STOCK                                            \
+  (PBL_FIELD_PREP(STM32F4_RTC_PRER_PREDIV_A_MASK, PREDIV_A) | \
+   PBL_FIELD_PREP(STM32F4_RTC_PRER_PREDIV_S_MASK, PREDIV_S))
 static_assert(SUBSEC_HZ == STM32_RTC_SUBSEC_HZ, "sub-second rate out of sync with the header");
 
 //! The wakeup timer is a 16-bit down-counter with a choice of clocks. The clock event counts
@@ -46,9 +58,9 @@ static_assert(SUBSEC_HZ == STM32_RTC_SUBSEC_HZ, "sub-second rate out of sync wit
 //! comes early rather than late (the kernel programs the rest).
 #define WUT_HZ        (LSE_HZ / 2U)
 #define WUT_MAX       65536U
-#define WUCKSEL_DIV2  (RTC_CR_WUCKSEL_1 | RTC_CR_WUCKSEL_0)
-#define WUCKSEL_DIV16 0U
-#define WUCKSEL_1HZ   RTC_CR_WUCKSEL_2
+#define WUCKSEL_DIV2  STM32F4_RTC_CR_WUCKSEL_DIV2
+#define WUCKSEL_DIV16 STM32F4_RTC_CR_WUCKSEL_DIV16
+#define WUCKSEL_1HZ   STM32F4_RTC_CR_WUCKSEL_1HZ
 //! LSE / 16 in LSE / 2 counts.
 #define WUT_DIV16_RATIO 8U
 
@@ -56,9 +68,8 @@ static_assert(SUBSEC_HZ == STM32_RTC_SUBSEC_HZ, "sub-second rate out of sync wit
 //! Initialization mode and wakeup timer write access come within two RTCCLK cycles.
 #define RTC_SYNC_TIMEOUT_US 1000U
 
-//! EXTI lines of the RTC alarms and of the wakeup timer.
-#define EXTI_LINE_RTC_ALARM  (1U << 17)
-#define EXTI_LINE_RTC_WAKEUP (1U << 22)
+//! ISR value clearing @p flags and INIT
+#define ISR_CLEAR(flags) (~((flags) | STM32F4_RTC_ISR_INIT) & STM32F4_RTC_ISR_MASK)
 
 #define SECONDS_PER_DAY 86400U
 
@@ -86,6 +97,7 @@ static uint32_t s_backward_steps;
 static uint32_t s_backward_regs[4];
 //! The RTC was found in another configuration at init and put back to the stock one.
 static bool s_restored_stock;
+static bool s_started;
 
 bool stm32_rtc_restored_stock_config(void) {
   return s_restored_stock;
@@ -95,13 +107,41 @@ bool stm32_rtc_restored_stock_config(void) {
 [[maybe_unused]] static uint32_t s_rearmed;
 [[maybe_unused]] static uint32_t s_repended;
 
+static inline uint32_t prv_getreg(uint32_t offset) {
+  return pbl_readl(RTC_BASE_ADDR + offset);
+}
+
+static inline void prv_putreg(uint32_t offset, uint32_t value) {
+  pbl_writel(value, RTC_BASE_ADDR + offset);
+}
+
+static inline void prv_modreg(uint32_t offset, uint32_t clear, uint32_t set) {
+  prv_putreg(offset, (prv_getreg(offset) & ~clear) | set);
+}
+
+static inline void prv_exti_putreg(uint32_t offset, uint32_t value) {
+  pbl_writel(value, EXTI_BASE_ADDR + offset);
+}
+
+static inline void prv_exti_modreg(uint32_t offset, uint32_t clear, uint32_t set) {
+  pbl_writel((pbl_readl(EXTI_BASE_ADDR + offset) & ~clear) | set, EXTI_BASE_ADDR + offset);
+}
+
+static inline uint32_t prv_bdcr_get(void) {
+  return pbl_readl(RCC_BASE_ADDR + STM32F4_RCC_BDCR_OFFSET);
+}
+
+static inline void prv_bdcr_put(uint32_t value) {
+  pbl_writel(value, RCC_BASE_ADDR + STM32F4_RCC_BDCR_OFFSET);
+}
+
 static void prv_wp_unlock(void) {
-  STM32_RTC->WPR = 0xCA;
-  STM32_RTC->WPR = 0x53;
+  prv_putreg(STM32F4_RTC_WPR_OFFSET, STM32F4_RTC_WPR_KEY1);
+  prv_putreg(STM32F4_RTC_WPR_OFFSET, STM32F4_RTC_WPR_KEY2);
 }
 
 static void prv_wp_lock(void) {
-  STM32_RTC->WPR = 0xFF;
+  prv_putreg(STM32F4_RTC_WPR_OFFSET, STM32F4_RTC_WPR_LOCK);
 }
 
 static uint32_t prv_bcd2bin(uint32_t bcd) {
@@ -130,14 +170,14 @@ static void prv_log_mixed(void *data) {
 //! read, so that the three values belong to one instant; a reading that mixes two is off by
 //! up to a second. Read until two in a row are of the same second. Interrupts masked.
 static void prv_calendar_read(uint32_t *ssr, uint32_t *tr, uint32_t *dr) {
-  uint32_t prev_ssr = STM32_RTC->SSR;
-  uint32_t prev_tr = STM32_RTC->TR;
-  uint32_t prev_dr = STM32_RTC->DR;
+  uint32_t prev_ssr = prv_getreg(STM32F4_RTC_SSR_OFFSET);
+  uint32_t prev_tr = prv_getreg(STM32F4_RTC_TR_OFFSET);
+  uint32_t prev_dr = prv_getreg(STM32F4_RTC_DR_OFFSET);
 
   for (unsigned int i = 0U; i < CALENDAR_READ_RETRIES; i++) {
-    *ssr = STM32_RTC->SSR;
-    *tr = STM32_RTC->TR;
-    *dr = STM32_RTC->DR;
+    *ssr = prv_getreg(STM32F4_RTC_SSR_OFFSET);
+    *tr = prv_getreg(STM32F4_RTC_TR_OFFSET);
+    *dr = prv_getreg(STM32F4_RTC_DR_OFFSET);
 
     // The sub-second counter counts down within a second and starts again with the next.
     const bool same_second = (*tr == prev_tr) && (*dr == prev_dr);
@@ -175,12 +215,12 @@ static uint64_t prv_calendar_count(void) {
     ssr = PREDIV_S;
   }
 
-  const uint32_t sec = prv_bcd2bin(tr & (RTC_TR_ST | RTC_TR_SU));
-  const uint32_t min = prv_bcd2bin((tr & (RTC_TR_MNT | RTC_TR_MNU)) >> 8);
-  const uint32_t hour = prv_bcd2bin((tr & (RTC_TR_HT | RTC_TR_HU)) >> 16);
-  const uint32_t day = prv_bcd2bin(dr & (RTC_DR_DT | RTC_DR_DU));
-  const uint32_t month = prv_bcd2bin((dr & (RTC_DR_MT | RTC_DR_MU)) >> 8);
-  const uint32_t year = prv_bcd2bin((dr & (RTC_DR_YT | RTC_DR_YU)) >> 16);
+  const uint32_t sec = prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_TR_SEC_MASK, tr));
+  const uint32_t min = prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_TR_MIN_MASK, tr));
+  const uint32_t hour = prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_TR_HOUR_MASK, tr));
+  const uint32_t day = prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_DR_DAY_MASK, dr));
+  const uint32_t month = prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_DR_MONTH_MASK, dr));
+  const uint32_t year = prv_bcd2bin(PBL_FIELD_GET(STM32F4_RTC_DR_YEAR_MASK, dr));
 
   const uint64_t seconds = ((uint64_t)prv_days_since_2000(year, month, day) * SECONDS_PER_DAY) +
                            (hour * 3600U) + (min * 60U) + sec;
@@ -227,7 +267,7 @@ static int prv_wait(uint32_t isr_flag) {
   return 0;
 #endif
   for (uint32_t us = 0U; us < RTC_SYNC_TIMEOUT_US; us++) {
-    if ((STM32_RTC->ISR & isr_flag) != 0U) {
+    if ((prv_getreg(STM32F4_RTC_ISR_OFFSET) & isr_flag) != 0U) {
       return 0;
     }
     pbl_busy_wait_us(1);
@@ -240,17 +280,17 @@ static uint32_t prv_read(const struct pbl_clocksource *cs) {
 }
 
 static void prv_alarm_disable(void) {
-  STM32_RTC->CR &= ~(RTC_CR_ALRAIE | RTC_CR_ALRAE);
-  STM32_RTC->ISR = ~(RTC_ISR_ALRAF | RTC_ISR_INIT) & 0x0001FFFFU;
-  EXTI->PR = EXTI_LINE_RTC_ALARM;
+  prv_modreg(STM32F4_RTC_CR_OFFSET, STM32F4_RTC_CR_ALRAIE | STM32F4_RTC_CR_ALRAE, 0U);
+  prv_putreg(STM32F4_RTC_ISR_OFFSET, ISR_CLEAR(STM32F4_RTC_ISR_ALRAF));
+  prv_exti_putreg(STM32F4_EXTI_PR_OFFSET, STM32F4_EXTI_LINE_RTC_ALARM);
 }
 
 #ifdef CONFIG_TIMER_STM32_RTC_WUT
 //! Stop the wakeup timer and drop a pending event. Write protection off.
 static void prv_wakeup_disable(void) {
-  STM32_RTC->CR &= ~(RTC_CR_WUTIE | RTC_CR_WUTE);
-  STM32_RTC->ISR = ~(RTC_ISR_WUTF | RTC_ISR_INIT) & 0x0001FFFFU;
-  EXTI->PR = EXTI_LINE_RTC_WAKEUP;
+  prv_modreg(STM32F4_RTC_CR_OFFSET, STM32F4_RTC_CR_WUTIE | STM32F4_RTC_CR_WUTE, 0U);
+  prv_putreg(STM32F4_RTC_ISR_OFFSET, ISR_CLEAR(STM32F4_RTC_ISR_WUTF));
+  prv_exti_putreg(STM32F4_EXTI_PR_OFFSET, STM32F4_EXTI_LINE_RTC_WAKEUP);
 }
 
 static void prv_set_next(const struct pbl_clockevent *ce, uint32_t delta) {
@@ -273,9 +313,10 @@ static void prv_set_next(const struct pbl_clockevent *ce, uint32_t delta) {
   // nothing here. Stopping it to write the counter takes about two RTCCLK cycles (60 us)
   // with interrupts locked, 1024 times a second. Its next event comes no later than asked.
 #ifdef CONFIG_TIMER_STM32_RTC_WUT_PERIODIC
-  if ((STM32_RTC->CR & (RTC_CR_WUTE | RTC_CR_WUTIE | RTC_CR_WUCKSEL)) ==
-          (RTC_CR_WUTE | RTC_CR_WUTIE | clock) &&
-      STM32_RTC->WUTR == count - 1U) {
+  if ((prv_getreg(STM32F4_RTC_CR_OFFSET) &
+       (STM32F4_RTC_CR_WUTE | STM32F4_RTC_CR_WUTIE | STM32F4_RTC_CR_WUCKSEL_MASK)) ==
+          (STM32F4_RTC_CR_WUTE | STM32F4_RTC_CR_WUTIE | clock) &&
+      prv_getreg(STM32F4_RTC_WUTR_OFFSET) == count - 1U) {
     s_armed = true;
     return;
   }
@@ -287,12 +328,12 @@ static void prv_set_next(const struct pbl_clockevent *ce, uint32_t delta) {
   // be taken for one of the timer started below.
   pbl_irq_clear_pending(PBL_IRQN(RTC_WKUP));
   // The counter and its clock can only be written while the timer is off.
-  (void)prv_wait(RTC_ISR_WUTWF);
-  STM32_RTC->CR = (STM32_RTC->CR & ~RTC_CR_WUCKSEL) | clock;
+  (void)prv_wait(STM32F4_RTC_ISR_WUTWF);
+  prv_modreg(STM32F4_RTC_CR_OFFSET, STM32F4_RTC_CR_WUCKSEL_MASK, clock);
   // The event comes count clock cycles after the timer is enabled.
-  STM32_RTC->WUTR = count - 1U;
+  prv_putreg(STM32F4_RTC_WUTR_OFFSET, count - 1U);
   s_armed = true;
-  STM32_RTC->CR |= RTC_CR_WUTIE | RTC_CR_WUTE;
+  prv_modreg(STM32F4_RTC_CR_OFFSET, 0U, STM32F4_RTC_CR_WUTIE | STM32F4_RTC_CR_WUTE);
   prv_wp_lock();
 }
 
@@ -327,12 +368,16 @@ static void prv_set_next(const struct pbl_clockevent *ce, uint32_t delta) {
 
   prv_wp_unlock();
   prv_alarm_disable();
-  (void)prv_wait(RTC_ISR_ALRAWF);
+  (void)prv_wait(STM32F4_RTC_ISR_ALRAWF);
   // Any date, this time of day and all the sub-second bits.
-  STM32_RTC->ALRMAR = RTC_ALRMAR_MSK4 | (prv_bin2bcd(sod / 3600U) << 16) |
-                      (prv_bin2bcd((sod / 60U) % 60U) << 8) | prv_bin2bcd(sod % 60U);
-  STM32_RTC->ALRMASSR = (ALARM_SS_BITS << 24) | ss;
-  STM32_RTC->CR |= RTC_CR_ALRAIE | RTC_CR_ALRAE;
+  prv_putreg(STM32F4_RTC_ALRMAR_OFFSET,
+             STM32F4_RTC_ALRMAR_MSK4 |
+                 PBL_FIELD_PREP(STM32F4_RTC_TR_HOUR_MASK, prv_bin2bcd(sod / 3600U)) |
+                 PBL_FIELD_PREP(STM32F4_RTC_TR_MIN_MASK, prv_bin2bcd((sod / 60U) % 60U)) |
+                 PBL_FIELD_PREP(STM32F4_RTC_TR_SEC_MASK, prv_bin2bcd(sod % 60U)));
+  prv_putreg(STM32F4_RTC_ALRMASSR_OFFSET,
+             PBL_FIELD_PREP(STM32F4_RTC_ALRMASSR_MASKSS_MASK, ALARM_SS_BITS) | ss);
+  prv_modreg(STM32F4_RTC_CR_OFFSET, 0U, STM32F4_RTC_CR_ALRAIE | STM32F4_RTC_CR_ALRAE);
   prv_wp_lock();
 
   s_deadline = target;
@@ -373,10 +418,10 @@ static const struct pbl_clockevent s_rtc_ce =
 const struct pbl_clockevent *const pbl_system_clockevent = &s_rtc_ce;
 
 static void prv_alarm_isr(void) {
-  const bool fired = (STM32_RTC->ISR & RTC_ISR_ALRAF) != 0U;
+  const bool fired = (prv_getreg(STM32F4_RTC_ISR_OFFSET) & STM32F4_RTC_ISR_ALRAF) != 0U;
 
-  STM32_RTC->ISR = ~(RTC_ISR_ALRAF | RTC_ISR_INIT) & 0x0001FFFFU;
-  EXTI->PR = EXTI_LINE_RTC_ALARM;
+  prv_putreg(STM32F4_RTC_ISR_OFFSET, ISR_CLEAR(STM32F4_RTC_ISR_ALRAF));
+  prv_exti_putreg(STM32F4_EXTI_PR_OFFSET, STM32F4_EXTI_LINE_RTC_ALARM);
 
   // Also runs when set_next pended the interrupt itself.
   if (s_armed && (fired || (prv_calendar_count() >= s_deadline))) {
@@ -404,11 +449,11 @@ const struct pbl_clockevent *const pbl_system_clockevent = &s_rtc_ce;
 
 static void prv_isr(void) {
   // Acknowledge the line first: a timer that expires after the check below raises it again.
-  EXTI->PR = EXTI_LINE_RTC_WAKEUP;
+  prv_exti_putreg(STM32F4_EXTI_PR_OFFSET, STM32F4_EXTI_LINE_RTC_WAKEUP);
 
   // Not expired: the interrupt is left over from a timer that has been stopped or started
   // again since. The running timer must be left alone, or its event never comes.
-  if ((STM32_RTC->ISR & RTC_ISR_WUTF) == 0U) {
+  if ((prv_getreg(STM32F4_RTC_ISR_OFFSET) & STM32F4_RTC_ISR_WUTF) == 0U) {
     s_stale_irqs++;
     return;
   }
@@ -416,7 +461,7 @@ static void prv_isr(void) {
 #ifdef CONFIG_TIMER_STM32_RTC_WUT_PERIODIC
   // The timer keeps running: the handler either wants the same period again, or sets another
   // one, or nothing, in which case the timer is stopped below.
-  STM32_RTC->ISR = ~(RTC_ISR_WUTF | RTC_ISR_INIT) & 0x0001FFFFU;
+  prv_putreg(STM32F4_RTC_ISR_OFFSET, ISR_CLEAR(STM32F4_RTC_ISR_WUTF));
 #else
   // One shot: the timer would reload and run again.
   prv_wp_unlock();
@@ -460,8 +505,8 @@ void stm32_rtc_event_check(void) {
     return;
   }
 
-  const uint32_t on = RTC_CR_WUTIE | RTC_CR_WUTE;
-  if ((STM32_RTC->CR & on) != on) {
+  const uint32_t on = STM32F4_RTC_CR_WUTIE | STM32F4_RTC_CR_WUTE;
+  if ((prv_getreg(STM32F4_RTC_CR_OFFSET) & on) != on) {
     prv_restart();
     return;
   }
@@ -471,7 +516,7 @@ void stm32_rtc_event_check(void) {
   // priority) can clear it too late: the flag then stays set, no edge follows and no clock
   // event would ever come. Interrupts are masked here, so a set flag is an event not yet
   // delivered either way: make sure its interrupt is pending.
-  if ((STM32_RTC->ISR & RTC_ISR_WUTF) != 0U) {
+  if ((prv_getreg(STM32F4_RTC_ISR_OFFSET) & STM32F4_RTC_ISR_WUTF) != 0U) {
     pbl_irq_set_pending(PBL_IRQN(RTC_WKUP));
     s_repended++;
     // Normal just before an event; report only every 1024th.
@@ -487,15 +532,15 @@ PBL_IRQ_CONNECT(RTC_WKUP, (1U << CONFIG_NUM_IRQ_PRIO_BITS) - 1U, prv_isr, , 0);
 
 static void prv_lse_start(void) {
   // The LSE keeps running from the backup domain across resets.
-  if ((RCC->BDCR & RCC_BDCR_LSERDY) != 0U) {
+  if ((prv_bdcr_get() & STM32F4_RCC_BDCR_LSERDY) != 0U) {
     return;
   }
 
   // The board feeds the LSE from an external 32.768 kHz clock.
-  RCC->BDCR |= RCC_BDCR_LSEBYP;
-  RCC->BDCR |= RCC_BDCR_LSEON;
+  prv_bdcr_put(prv_bdcr_get() | STM32F4_RCC_BDCR_LSEBYP);
+  prv_bdcr_put(prv_bdcr_get() | STM32F4_RCC_BDCR_LSEON);
   for (uint32_t ms = 0U; ms < LSE_READY_TIMEOUT_MS; ms++) {
-    if ((RCC->BDCR & RCC_BDCR_LSERDY) != 0U) {
+    if ((prv_bdcr_get() & STM32F4_RCC_BDCR_LSERDY) != 0U) {
       return;
     }
     pbl_busy_wait_us(1000);
@@ -503,19 +548,19 @@ static void prv_lse_start(void) {
 }
 
 static int prv_enter_init(void) {
-  STM32_RTC->ISR |= RTC_ISR_INIT;
-  return prv_wait(RTC_ISR_INITF);
+  prv_modreg(STM32F4_RTC_ISR_OFFSET, 0U, STM32F4_RTC_ISR_INIT);
+  return prv_wait(STM32F4_RTC_ISR_INITF);
 }
 
 static void prv_exit_init(void) {
-  STM32_RTC->ISR &= ~RTC_ISR_INIT;
+  prv_modreg(STM32F4_RTC_ISR_OFFSET, STM32F4_RTC_ISR_INIT, 0U);
 }
 
 void stm32_rtc_resync(void) {
   // The shadow registers hold the last synchronized calendar: after STOP mode or an
   // initialization they are stale until the next synchronization, which RSF reports.
-  STM32_RTC->ISR &= ~RTC_ISR_RSF;
-  (void)prv_wait(RTC_ISR_RSF);
+  prv_modreg(STM32F4_RTC_ISR_OFFSET, STM32F4_RTC_ISR_RSF, 0U);
+  (void)prv_wait(STM32F4_RTC_ISR_RSF);
 }
 
 int stm32_rtc_calendar_set(uint32_t tr, uint32_t dr) {
@@ -528,8 +573,8 @@ int stm32_rtc_calendar_set(uint32_t tr, uint32_t dr) {
   prv_wp_unlock();
   ret = prv_enter_init();
   if (ret == 0) {
-    STM32_RTC->TR = tr;
-    STM32_RTC->DR = dr;
+    prv_putreg(STM32F4_RTC_TR_OFFSET, tr);
+    prv_putreg(STM32F4_RTC_DR_OFFSET, dr);
     prv_exit_init();
   }
   prv_wp_lock();
@@ -560,28 +605,30 @@ void stm32_rtc_calendar_get(uint32_t *tr, uint32_t *dr) {
 
 // Both devices share the RTC.
 static int prv_init(const struct pbl_device *dev) {
-  static bool s_started;
-
   if (!s_started) {
     // Backup domain write access.
-    soc_stm32_clock_set(SOC_STM32_APB1, RCC_APB1ENR_PWREN, true);
-    PWR->CR |= PWR_CR_DBP;
+    soc_stm32_clock_set(SOC_STM32_APB1, STM32F4_RCC_APB1ENR_PWREN, true);
+    pbl_writel(pbl_readl(PWR_BASE_ADDR + STM32F4_PWR_CR_OFFSET) | STM32F4_PWR_CR_DBP,
+               PWR_BASE_ADDR + STM32F4_PWR_CR_OFFSET);
 
     prv_lse_start();
-    if ((RCC->BDCR & RCC_BDCR_RTCEN) == 0U) {
-      RCC->BDCR = (RCC->BDCR & ~RCC_BDCR_RTCSEL) | RCC_BDCR_RTCSEL_0;
-      RCC->BDCR |= RCC_BDCR_RTCEN;
+    if ((prv_bdcr_get() & STM32F4_RCC_BDCR_RTCEN) == 0U) {
+      prv_bdcr_put((prv_bdcr_get() & ~STM32F4_RCC_BDCR_RTCSEL_MASK) |
+                   PBL_FIELD_PREP(STM32F4_RCC_BDCR_RTCSEL_MASK, STM32F4_RCC_BDCR_RTCSEL_LSE));
+      prv_bdcr_put(prv_bdcr_get() | STM32F4_RCC_BDCR_RTCEN);
     }
 
     prv_wp_unlock();
     // The stock set-up: 127/255, 24-hour format, shadow registers. Earlier builds of this port
     // ran 31/1023 with the shadow registers bypassed; put that back, keeping the calendar.
-    if ((STM32_RTC->PRER != ((PREDIV_A << 16) | PREDIV_S)) ||
-        ((STM32_RTC->CR & (RTC_CR_BYPSHAD | RTC_CR_FMT)) != 0U)) {
+    if ((prv_getreg(STM32F4_RTC_PRER_OFFSET) != PRER_STOCK) ||
+        ((prv_getreg(STM32F4_RTC_CR_OFFSET) & (STM32F4_RTC_CR_BYPSHAD | STM32F4_RTC_CR_FMT)) !=
+         0U)) {
       if (prv_enter_init() == 0) {
-        STM32_RTC->PRER = PREDIV_S;
-        STM32_RTC->PRER = (PREDIV_A << 16) | PREDIV_S;
-        STM32_RTC->CR &= ~(RTC_CR_FMT | RTC_CR_BYPSHAD);
+        prv_putreg(STM32F4_RTC_PRER_OFFSET,
+                   PBL_FIELD_PREP(STM32F4_RTC_PRER_PREDIV_S_MASK, PREDIV_S));
+        prv_putreg(STM32F4_RTC_PRER_OFFSET, PRER_STOCK);
+        prv_modreg(STM32F4_RTC_CR_OFFSET, STM32F4_RTC_CR_FMT | STM32F4_RTC_CR_BYPSHAD, 0U);
         prv_exit_init();
         s_restored_stock = true;
       }
@@ -589,22 +636,22 @@ static int prv_init(const struct pbl_device *dev) {
     // Both event sources keep their state in the backup domain, and a build with the other
     // one may have run before: start with both off.
     prv_alarm_disable();
-    STM32_RTC->CR &= ~(RTC_CR_WUTIE | RTC_CR_WUTE);
-    STM32_RTC->ISR = ~(RTC_ISR_WUTF | RTC_ISR_INIT) & 0x0001FFFFU;
-    EXTI->PR = EXTI_LINE_RTC_WAKEUP;
+    prv_modreg(STM32F4_RTC_CR_OFFSET, STM32F4_RTC_CR_WUTIE | STM32F4_RTC_CR_WUTE, 0U);
+    prv_putreg(STM32F4_RTC_ISR_OFFSET, ISR_CLEAR(STM32F4_RTC_ISR_WUTF));
+    prv_exti_putreg(STM32F4_EXTI_PR_OFFSET, STM32F4_EXTI_LINE_RTC_WAKEUP);
     prv_wp_lock();
     stm32_rtc_resync();
 
 #ifdef CONFIG_TIMER_STM32_RTC_WUT
-    EXTI->RTSR |= EXTI_LINE_RTC_WAKEUP;
-    EXTI->FTSR &= ~EXTI_LINE_RTC_WAKEUP;
-    EXTI->IMR |= EXTI_LINE_RTC_WAKEUP;
+    prv_exti_modreg(STM32F4_EXTI_RTSR_OFFSET, 0U, STM32F4_EXTI_LINE_RTC_WAKEUP);
+    prv_exti_modreg(STM32F4_EXTI_FTSR_OFFSET, STM32F4_EXTI_LINE_RTC_WAKEUP, 0U);
+    prv_exti_modreg(STM32F4_EXTI_IMR_OFFSET, 0U, STM32F4_EXTI_LINE_RTC_WAKEUP);
     pbl_irq_enable(PBL_IRQN(RTC_WKUP));
 #endif
 #ifdef CONFIG_TIMER_STM32_RTC_ALARM
-    EXTI->RTSR |= EXTI_LINE_RTC_ALARM;
-    EXTI->FTSR &= ~EXTI_LINE_RTC_ALARM;
-    EXTI->IMR |= EXTI_LINE_RTC_ALARM;
+    prv_exti_modreg(STM32F4_EXTI_RTSR_OFFSET, 0U, STM32F4_EXTI_LINE_RTC_ALARM);
+    prv_exti_modreg(STM32F4_EXTI_FTSR_OFFSET, STM32F4_EXTI_LINE_RTC_ALARM, 0U);
+    prv_exti_modreg(STM32F4_EXTI_IMR_OFFSET, 0U, STM32F4_EXTI_LINE_RTC_ALARM);
     pbl_irq_enable(PBL_IRQN(RTC_Alarm));
 #endif
 

@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
+# SPDX-License-Identifier: Apache-2.0
+
+pbl_clar_test(test_timer_stm32_rtc_alarm
+  OVERRIDES
+    stm32f4_mmio
+  INCLUDES
+    soc/stm32/stm32f4
+  DEFINES
+    PBL_NO_LINKER_SCRIPT
+    CONFIG_NUM_IRQ_PRIO_BITS=4
+    CONFIG_TIMER_STM32_RTC=1
+    CONFIG_TIMER_STM32_RTC_ALARM=1
+    PBL_SOC_IRQN_RTC_WKUP=3
+    PBL_SOC_IRQN_RTC_Alarm=41
+)
+
+pbl_clar_test(test_timer_stm32_rtc_wut
+  OVERRIDES
+    stm32f4_mmio
+  INCLUDES
+    soc/stm32/stm32f4
+  DEFINES
+    PBL_NO_LINKER_SCRIPT
+    CONFIG_NUM_IRQ_PRIO_BITS=4
+    CONFIG_TIMER_STM32_RTC=1
+    CONFIG_TIMER_STM32_RTC_WUT=1
+    CONFIG_TIMER_STM32_RTC_WUT_PERIODIC=1
+    CONFIG_TIMER_STM32_RTC_WUT_MIN_COUNT=16
+    PBL_SOC_IRQN_RTC_WKUP=3
+    PBL_SOC_IRQN_RTC_Alarm=41
+)
