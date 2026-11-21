@@ -12,4 +12,11 @@ module = SERVICE_GET_BYTES
 module-str = Get bytes
 source "subsys/logging/Kconfig.template.log_level"
 
+config SERVICE_GET_BYTES_RAW
+    bool "File and flash retrieval"
+    default y if !RELEASE
+    help
+      Serve files and raw flash, including pairing keys, to the connected
+      phone. Off in release builds unless a debug image asks for it.
+
 endif

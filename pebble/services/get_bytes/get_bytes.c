@@ -211,8 +211,7 @@ bool prv_setup_state_for_command(GetBytesCmd cmd, GetBytesState *state, const ui
       state->object_type = GetBytesObjectCoredump;
       return gb_storage_setup(&state->storage, state->object_type, &info);
 
-// if we are on a release build, don't allow the user to retrieve files or read the flash
-#ifndef CONFIG_RELEASE
+#ifdef CONFIG_SERVICE_GET_BYTES_RAW
     case GET_BYTES_CMD_GET_FILE: {
       state->object_type = GetBytesObjectFile;
       // copy the filename
