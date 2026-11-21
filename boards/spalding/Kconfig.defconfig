@@ -72,3 +72,6 @@ config BATTERY_WARNING_SECOND_PERCENT
 # Core dumps for hard lockups in debug builds
 config TASK_WDT_HARDLOCKUP
     default y if LEGACY_DEBUG && ARCH_HAS_HARDLOCKUP_DETECTOR && WATCHDOG
+
+config SERVICE_GET_BYTES_RAW
+    default y if LEGACY_DEBUG
