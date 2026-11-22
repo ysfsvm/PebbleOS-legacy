@@ -111,12 +111,6 @@ PBL_MAX14690_DEFINE(s_max14690, &dt_i2c1, &I2C_SLAVE_MAX14690,
                     .mon_adc_pin = PBL_GPIO(STM32_GPIOA, 1, 0));
 const struct pbl_max14690 *const MAX14690 = &s_max14690;
 
-// Vibe: H-bridge driven by TIM10 CH1, enabled by PF4
-///////////////////////////////////////////////////////////////////////////////
-
-PBL_VIBE_PWM_DEFINE(snowy_vibe, true, .pwm = PBL_PWM(&dt_pwm10, 0, PBL_PWM_HZ(22000), 0),
-                    .ctl = PBL_GPIO(STM32_GPIOF, 4, 0));
-
 // Ambient light: phototransistor on ADC1 channel 2, powered by PA3
 ///////////////////////////////////////////////////////////////////////////////
 

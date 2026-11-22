@@ -23,9 +23,7 @@ mag:
 als:
   symbol: "&snowy_als.als"
   include: snowy/snowy_devices.h
-vibe:
-  symbol: "&snowy_vibe.vibe"
-  include: snowy/snowy_devices.h
+vibe: vibrator
 mic:
   symbol: "&snowy_mic"
   include: snowy/snowy_devices.h

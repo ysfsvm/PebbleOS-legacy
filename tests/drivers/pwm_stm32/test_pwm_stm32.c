@@ -337,16 +337,10 @@ uint16_t pmic_get_vsys(void) {
   return 4200U;
 }
 
-// Devices, as snowy.c defines those not in the tree
-////////////////////////////////////////////////////////////////////////////////
-
-PBL_VIBE_PWM_DEFINE(s_vibe, true, .pwm = PBL_PWM(&dt_pwm10, 0, PBL_PWM_HZ(22000), 0),
-                    .ctl = PBL_GPIO(STM32_GPIOF, 4, 0));
-
 static const struct pbl_pwm_controller *const s_tim12_ctrl = &dt_pwm12;
 static const struct pbl_pwm_controller *const s_tim10_ctrl = &dt_pwm10;
 static const struct pbl_backlight *const s_bl = &dt_backlight;
-static const struct pbl_vibe *const s_vb = &s_vibe.vibe;
+static const struct pbl_vibe *const s_vb = &dt_vibrator;
 
 static void prv_devices_reset(void) {
   const struct pbl_device *devs[] = {

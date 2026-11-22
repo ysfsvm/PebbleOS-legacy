@@ -10,6 +10,7 @@ if VIBE
 
 config VIBE_PWM
     bool "PWM-driven motor"
+    default DT_HAS_PEBBLE_PWM_HBRIDGE_VIBRATOR_ENABLED
     depends on PWM
     help
       Vibe motor driven by a PWM output: single direction, its strength

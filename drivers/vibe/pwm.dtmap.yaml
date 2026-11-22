@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
+# SPDX-License-Identifier: Apache-2.0
+
+compatible: pebble,pwm-hbridge-vibrator
+config: VIBE_PWM
+class: vibe
+define: PBL_VIBE_PWM_HBRIDGE_DEFINE
+args:
+  # Brought up by the driver
+  - pwm: 0
+    depends: false
+  - gpio: enable
+    default: PBL_GPIO(nullptr, 0, 0)
