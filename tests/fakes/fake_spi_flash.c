@@ -25,6 +25,7 @@ typedef struct FakeFlashState {
   uint32_t read_count;
   uint32_t write_count;
   uint32_t erase_count;
+  uint32_t *sector_erase_counts;
 } FakeFlashState;
 
 static FakeFlashState s_state = {};
@@ -36,6 +37,7 @@ void fake_spi_flash_erase(void) {
 void fake_spi_flash_cleanup(void) {
   free(s_state.storage);
   s_state.storage = nullptr;
+  free(s_state.sector_erase_counts);
   s_state = (FakeFlashState){};
 }
 
@@ -58,6 +60,8 @@ void fake_spi_flash_init(uint32_t offset, uint32_t length) {
   // Note: this is a harness failure, not a code failure.
   cl_assert(s_state.storage != nullptr);
   memset(s_state.storage, 0xff, length);
+  s_state.sector_erase_counts = calloc(length / SECTOR_SIZE_BYTES + 2, sizeof(uint32_t));
+  cl_assert(s_state.sector_erase_counts != nullptr);
 }
 
 void fake_flash_assert_untouched_outside(uint32_t begin, uint32_t end) {
@@ -143,9 +147,14 @@ int pbl_flash_write(const struct pbl_flash *flash, uint32_t addr, const void *bu
   return 0;
 }
 
+static uint32_t prv_sector_index(uint32_t addr) {
+  return (addr / SECTOR_SIZE_BYTES) - (s_state.offset / SECTOR_SIZE_BYTES);
+}
+
 static void prv_erase_block(uint32_t addr, uint32_t size) {
   ++s_state.erase_count;
   prv_check_range(addr, size);
+  ++s_state.sector_erase_counts[prv_sector_index(addr)];
   memset(&s_state.storage[addr - s_state.offset], 0xff, size);
 }
 
@@ -220,4 +229,9 @@ uint32_t fake_flash_write_count(void) {
 
 uint32_t fake_flash_erase_count(void) {
   return s_state.erase_count;
+}
+
+uint32_t fake_flash_sector_erase_count(uint32_t addr) {
+  prv_check_range(addr, 1);
+  return s_state.sector_erase_counts[prv_sector_index(addr)];
 }

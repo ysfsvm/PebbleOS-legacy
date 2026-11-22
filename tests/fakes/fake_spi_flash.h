@@ -33,3 +33,6 @@ void fake_flash_assert_untouched_outside(uint32_t begin, uint32_t end);
 uint32_t fake_flash_read_count(void);
 uint32_t fake_flash_write_count(void);
 uint32_t fake_flash_erase_count(void);
+
+//! Erases that touched the sector holding addr
+uint32_t fake_flash_sector_erase_count(uint32_t addr);
