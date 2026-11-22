@@ -475,7 +475,7 @@ void test_pfs_convert__step_limit_leaves_the_files_to_a_later_boot(void) {
   prv_assert_usable();
 }
 
-void test_pfs_convert__sector_that_never_erases(void) {
+static void prv_boot_with_failing_sector(uint16_t sector) {
   const uint16_t gone0[] = {0};
   const uint16_t a[] = {1};
   const uint16_t gone2[] = {2};
@@ -484,16 +484,31 @@ void test_pfs_convert__sector_that_never_erases(void) {
   prv_old_file_in(a, "a", 100, 2, 0);
   prv_old_file_in(gone2, "gone2", prv_full_size("gone2"), 3, OLD_DELETED);
   prv_old_file_in(big, "big", OLD_PAYLOAD + 50000, 4, 0);
-  fake_spi_flash_fail_erase(true, PART_FILESYSTEM_OFFSET + 2 * SECTOR_SIZE_BYTES);
+  const uint32_t addr = PART_FILESYSTEM_OFFSET + sector * SECTOR_SIZE_BYTES;
+  fake_spi_flash_fail_erase(true, addr);
 
   prv_reboot();
 
   prv_assert_unavailable();
+  cl_assert_equal_i(fake_flash_sector_erase_count(addr), 1);
   fake_spi_flash_fail_erase(false, 0);
   prv_reboot();
   prv_assert_files();
   prv_assert_new_layout();
   prv_assert_usable();
+}
+
+void test_pfs_convert__sector_that_never_erases(void) {
+  prv_boot_with_failing_sector(2);
+}
+
+void test_pfs_convert__marker_sector_that_never_erases(void) {
+  prv_boot_with_failing_sector(0);
+}
+
+void test_pfs_convert__marker_sector_that_never_erases_without_an_error(void) {
+  fake_spi_flash_fail_erase_silently(true);
+  prv_boot_with_failing_sector(0);
 }
 
 void test_pfs_convert__second_boot_writes_nothing(void) {
