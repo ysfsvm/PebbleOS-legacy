@@ -16,8 +16,15 @@
 
 #include "../../../drivers/gpio/stm32.c"
 
+PBL_GPIO_STM32_DEFINE(s_gpioc, "gpioc", 0x40020800, PBL_CLK(nullptr, 0), 0x40013c00, 0x40013800,
+                      PBL_CLK(nullptr, 0), PBL_GPIO_STM32_HOG(4, 0, PBL_GPIO_OUTPUT_INACTIVE),
+                      PBL_GPIO_STM32_HOG(5, 1, PBL_GPIO_OUTPUT_INACTIVE),
+                      PBL_GPIO_STM32_HOG(6, 0x20, PBL_GPIO_INPUT),
+                      PBL_GPIO_STM32_HOG(7, 0, PBL_GPIO_OUTPUT_ACTIVE));
+
 #define EXTI_BASE   0x40013c00U
 #define SYSCFG_BASE 0x40013800U
+#define GPIOC_BASE  0x40020800U
 #define NUM_REGS    64
 
 static struct {
@@ -25,6 +32,8 @@ static struct {
   uint32_t val;
 } s_regs[NUM_REGS];
 static int s_num_regs;
+static uint32_t s_gpioc_bsrr[NUM_REGS];
+static int s_num_gpioc_bsrr;
 
 static uint32_t *prv_reg(uintptr_t addr) {
   for (int i = 0; i < s_num_regs; i++) {
@@ -43,6 +52,9 @@ uint32_t fake_mmio_readl(uintptr_t addr) {
 }
 
 void fake_mmio_writel(uint32_t val, uintptr_t addr) {
+  if (addr == GPIOC_BASE + STM32F4_GPIO_BSRR_OFFSET && s_num_gpioc_bsrr < NUM_REGS) {
+    s_gpioc_bsrr[s_num_gpioc_bsrr++] = val;
+  }
   if (addr == EXTI_BASE + STM32F4_EXTI_PR_OFFSET) {
     *prv_reg(addr) &= ~val;
   } else {
@@ -103,6 +115,7 @@ void test_gpio_stm32__initialize(void) {
   memset(s_regs, 0, sizeof(s_regs));
   memset(s_nvic_enabled, 0, sizeof(s_nvic_enabled));
   s_num_regs = 0;
+  s_num_gpioc_bsrr = 0;
   s_handler_calls = 0;
   s_second_edge = 0;
   cl_assert_equal_i(pbl_device_init(&dt_gpioa_intc.dev), 0);
@@ -179,4 +192,27 @@ void test_gpio_stm32__a_masked_pending_line_is_cleared_without_its_handler(void)
   cl_assert_equal_i(prv_run_exti15_10(), 1);
   cl_assert_equal_i(s_handler_calls, 0);
   cl_assert_equal_i(prv_exti(STM32F4_EXTI_PR_OFFSET), 0U);
+}
+
+void test_gpio_stm32__the_hogs_of_a_port_are_set_up_at_its_init(void) {
+  static const uint32_t bsrr[] = {PBL_BIT(4 + 16), PBL_BIT(5), PBL_BIT(7)};
+
+  *s_gpioc.dev.state = (struct pbl_device_state){0};
+  cl_assert_equal_i(pbl_device_init(&s_gpioc.dev), 0);
+
+  cl_assert_equal_i(s_num_gpioc_bsrr, ARRAY_LENGTH(bsrr));
+  for (size_t i = 0; i < ARRAY_LENGTH(bsrr); i++) {
+    cl_assert_equal_i(s_gpioc_bsrr[i], bsrr[i]);
+  }
+  cl_assert_equal_i(*prv_reg(GPIOC_BASE + STM32F4_GPIO_MODER_OFFSET),
+                    PBL_BIT(2 * 4) | PBL_BIT(2 * 5) | PBL_BIT(2 * 7));
+  cl_assert_equal_i(*prv_reg(GPIOC_BASE + STM32F4_GPIO_PUPDR_OFFSET), 2U << (2 * 6));
+}
+
+void test_gpio_stm32__a_port_without_hogs_only_takes_its_clock(void) {
+  *dt_gpiog.dev.state = (struct pbl_device_state){0};
+  s_num_regs = 0;
+
+  cl_assert_equal_i(pbl_device_init(&dt_gpiog.dev), 0);
+  cl_assert_equal_i(s_num_regs, 0);
 }
