@@ -81,12 +81,6 @@ int pbl_flash_dev_init(const struct pbl_device *dev) {
 ////////////////////////////////////////////////////////////////////////////////
 
 GPIO_TypeDef fake_gpio[11];
-FMC_Bank1_TypeDef fake_fmc_bank1;
-FMC_Bank1E_TypeDef fake_fmc_bank1e;
-FMC_Bank2_TypeDef fake_fmc_bank2;
-FMC_Bank3_TypeDef fake_fmc_bank3;
-FMC_Bank4_TypeDef fake_fmc_bank4;
-FMC_Bank5_6_TypeDef fake_fmc_bank5_6;
 
 void RCC_GetClocksFreq(RCC_ClocksTypeDef *clocks) {
   clocks->SYSCLK_Frequency = HCLK_HZ;
@@ -98,19 +92,7 @@ void RCC_GetClocksFreq(RCC_ClocksTypeDef *clocks) {
 void RCC_AHB1PeriphResetCmd(uint32_t periph, FunctionalState state) {
 }
 
-static bool prv_fmc_bank_enabled(void) {
-  return (fake_fmc_bank1.BTCR[0] & 1U) != 0;
-}
-
-static void prv_fmc_edge(bool was) {
-  if (prv_fmc_bank_enabled() != was) {
-    m_trace("fmc bank %s", was ? "off" : "on");
-  }
-}
-
 #undef GPIO_WriteBit
-#undef FMC_NORSRAMCmd
-#undef FMC_NORSRAMInit
 
 void GPIO_WriteBit(GPIO_TypeDef *gpio, uint16_t pin, BitAction val) {
   const bool was = (gpio->ODR & pin) != 0;
@@ -127,21 +109,13 @@ void GPIO_WriteBit(GPIO_TypeDef *gpio, uint16_t pin, BitAction val) {
   }
 }
 
-void FMC_NORSRAMCmd(uint32_t bank, FunctionalState state) {
-  const bool was = prv_fmc_bank_enabled();
-  st_FMC_NORSRAMCmd(bank, state);
-  prv_fmc_edge(was);
-}
-
-void FMC_NORSRAMInit(FMC_NORSRAMInitTypeDef *init) {
-  const bool was = prv_fmc_bank_enabled();
-  st_FMC_NORSRAMInit(init);
-  prv_fmc_edge(was);
-}
-
 #include "../../../drivers/flash/s29vs.c"
 
 #define REG_PATTERN 0xA5A5A5A5U
+
+static uint32_t s_fmc_bcr1;
+static uint32_t s_fmc_btr1;
+static uint32_t s_fmc_bwtr1;
 
 static void prv_regs_reset(void) {
   for (int i = 0; i < 11; i++) {
@@ -154,15 +128,9 @@ static void prv_regs_reset(void) {
       .AFR = {REG_PATTERN, REG_PATTERN},
     };
   }
-  fake_fmc_bank1 = (FMC_Bank1_TypeDef){
-    .BTCR = {
-      REG_PATTERN, REG_PATTERN, 0x000030D2, 0x0FFFFFFF, 0x000030D2, 0x0FFFFFFF, 0x000030D2,
-      0x0FFFFFFF
-    },
-  };
-  for (int i = 0; i < 7; i++) {
-    fake_fmc_bank1e.BWTR[i] = REG_PATTERN;
-  }
+  s_fmc_bcr1 = REG_PATTERN;
+  s_fmc_btr1 = REG_PATTERN;
+  s_fmc_bwtr1 = REG_PATTERN;
   s_fmc_clock = false;
 }
 
@@ -177,9 +145,10 @@ static void m_bus_check(uint32_t off) {
     pins = pins && (pin == 2U || prv_fmc_pin(GPIOD, pin)) && (pin < 2U || prv_fmc_pin(GPIOE, pin));
   }
   const bool reset_high = ((GPIOD->MODER >> 4) & 3U) == 1U && (GPIOD->ODR & GPIO_Pin_2) != 0;
-  if (!s_fmc_clock || !prv_fmc_bank_enabled() || !pins || !reset_high) {
-    m_violation("bus access at %06x: clock %d bank %d pins %d RESET# %d", off, s_fmc_clock,
-                prv_fmc_bank_enabled(), pins, reset_high);
+  const bool bank = (s_fmc_bcr1 & STM32F4_FMC_BCR_MBKEN) != 0;
+  if (!s_fmc_clock || !bank || !pins || !reset_high) {
+    m_violation("bus access at %06x: clock %d bank %d pins %d RESET# %d", off, s_fmc_clock, bank,
+                pins, reset_high);
   }
 }
 
@@ -190,20 +159,36 @@ static void prv_trace_gpio(const char *name, const GPIO_TypeDef *gpio) {
 }
 
 static void prv_trace_regs(void) {
-  m_trace("FMC BCR1 %08x BTR1 %08x BWTR1 %08x", fake_fmc_bank1.BTCR[0], fake_fmc_bank1.BTCR[1],
-          fake_fmc_bank1e.BWTR[0]);
+  m_trace("FMC BCR1 %08x BTR1 %08x BWTR1 %08x", s_fmc_bcr1, s_fmc_btr1, s_fmc_bwtr1);
   prv_trace_gpio("GPIOB", GPIOB);
   prv_trace_gpio("GPIOD", GPIOD);
   prv_trace_gpio("GPIOE", GPIOE);
 }
 
+static uint32_t *prv_reg(uintptr_t addr) {
+  switch (addr) {
+    case 0xA0000000U:
+      return &s_fmc_bcr1;
+    case 0xA0000004U:
+      return &s_fmc_btr1;
+    case 0xA0000104U:
+      return &s_fmc_bwtr1;
+    default:
+      cl_fail("unexpected register access");
+      return NULL;
+  }
+}
+
 uint32_t fake_mmio_readl(uintptr_t addr) {
-  cl_fail("unexpected register read");
-  return 0;
+  return *prv_reg(addr);
 }
 
 void fake_mmio_writel(uint32_t val, uintptr_t addr) {
-  cl_fail("unexpected register write");
+  uint32_t *reg = prv_reg(addr);
+  if (reg == &s_fmc_bcr1 && ((*reg ^ val) & 1U) != 0) {
+    m_trace("fmc bank %s", (val & 1U) ? "on" : "off");
+  }
+  *reg = val;
 }
 
 static const struct pbl_flash *const s_flash = &pbl_flash_s29vs;

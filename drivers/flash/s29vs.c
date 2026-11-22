@@ -33,6 +33,8 @@
 #include <pbl/util/math.h>
 #include <pbl/util/size.h>
 
+#include <hardware/stm32f4_fmc.h>
+
 #define MHZ_TO_HZ(mhz) ((mhz) * 1000000U)
 
 typedef uint32_t FlashAddress;
@@ -45,6 +47,9 @@ typedef uint32_t FlashAddress;
 
 //! This is the memory mapped region that's mapped to the parallel flash.
 static const uintptr_t FMC_BANK_1_BASE_ADDRESS = 0x60000000;
+
+//! FMC control registers
+#define FMC_REG_BASE 0xA0000000U
 
 //! This is the unit that we use for writing
 static const uint32_t S29VS_PAGE_SIZE = 64;
@@ -531,7 +536,7 @@ static status_t flash_impl_read_sync(void *buffer_ptr, FlashAddress start_addr,
 
   // At this point, flash_data_addr is now halfword aligned
   buff_ptr = (uint16_t *)&buffer[bytes_read];
-  bool odd_buff_addr = ((((uint32_t)buff_ptr) % 2) == 1);
+  bool odd_buff_addr = ((((uintptr_t)buff_ptr) % 2) == 1);
   if (buffer_size - bytes_read >= 2) {
     // if at least one halfword to read
     if (!odd_buff_addr) {
@@ -719,10 +724,45 @@ static status_t flash_impl_exit_low_power_mode(void) {
   return S_SUCCESS;
 }
 
-static void prv_switch_flash_mode(FMC_NORSRAMInitTypeDef *nor_init) {
-  FMC_NORSRAMCmd(FMC_Bank1_NORSRAM1, DISABLE);
-  FMC_NORSRAMInit(nor_init);
-  FMC_NORSRAMCmd(FMC_Bank1_NORSRAM1, ENABLE);
+//! BCR1 and BTR1
+struct fmc_nor_config {
+  uint32_t bcr;
+  uint32_t btr;
+};
+
+#define FMC_BCR1  (FMC_REG_BASE + STM32F4_FMC_BCR_OFFSET(0))
+#define FMC_BTR1  (FMC_REG_BASE + STM32F4_FMC_BTR_OFFSET(0))
+#define FMC_BWTR1 (FMC_REG_BASE + STM32F4_FMC_BWTR_OFFSET(0))
+
+#define FMC_BCR_CONFIG_MASK                                                       \
+  (STM32F4_FMC_BCR_MBKEN | STM32F4_FMC_BCR_MUXEN | STM32F4_FMC_BCR_MTYP_MASK |    \
+   STM32F4_FMC_BCR_MWID_MASK | STM32F4_FMC_BCR_FACCEN | STM32F4_FMC_BCR_BURSTEN | \
+   STM32F4_FMC_BCR_WAITPOL | STM32F4_FMC_BCR_WRAPMOD | STM32F4_FMC_BCR_WAITCFG |  \
+   STM32F4_FMC_BCR_WREN | STM32F4_FMC_BCR_WAITEN | STM32F4_FMC_BCR_EXTMOD |       \
+   STM32F4_FMC_BCR_ASYNCWAIT | STM32F4_FMC_BCR_CBURSTRW | STM32F4_FMC_BCR_CCLKEN)
+
+// BCR bits kept on disable
+#define FMC_BCR_DISABLE_KEEP (PBL_GENMASK(19, 0) & ~STM32F4_FMC_BCR_MBKEN)
+
+static void prv_switch_flash_mode(const struct fmc_nor_config *config) {
+  pbl_writel(pbl_readl(FMC_BCR1) & FMC_BCR_DISABLE_KEEP, FMC_BCR1);
+
+  pbl_writel((pbl_readl(FMC_BCR1) & ~FMC_BCR_CONFIG_MASK) | config->bcr, FMC_BCR1);
+  pbl_writel(pbl_readl(FMC_BCR1) | STM32F4_FMC_BCR_FACCEN, FMC_BCR1);
+  pbl_writel(config->btr, FMC_BTR1);
+  pbl_writel(STM32F4_FMC_BWTR_RESET, FMC_BWTR1);
+
+  pbl_writel(pbl_readl(FMC_BCR1) | STM32F4_FMC_BCR_MBKEN, FMC_BCR1);
+}
+
+static uint32_t prv_fmc_btr(uint32_t addset, uint32_t addhld, uint32_t datast, uint32_t busturn,
+                            uint32_t clkdiv, uint32_t datlat) {
+  return PBL_FIELD_PREP(STM32F4_FMC_BTR_ADDSET_MASK, addset) |
+         PBL_FIELD_PREP(STM32F4_FMC_BTR_ADDHLD_MASK, addhld) |
+         PBL_FIELD_PREP(STM32F4_FMC_BTR_DATAST_MASK, datast) |
+         PBL_FIELD_PREP(STM32F4_FMC_BTR_BUSTURN_MASK, busturn) |
+         PBL_FIELD_PREP(STM32F4_FMC_BTR_CLKDIV_MASK, clkdiv) |
+         PBL_FIELD_PREP(STM32F4_FMC_BTR_DATLAT_MASK, datlat);
 }
 
 static uint16_t prv_get_num_wait_cycles(uint32_t flash_clock_freq) {
@@ -756,57 +796,42 @@ static status_t flash_impl_set_burst_mode(bool burst_mode) {
   uint32_t h_clock = clocks.HCLK_Frequency;                      // frequency in hertz
   uint32_t time_per_cycle = ((uint64_t)(10000000000)) / h_clock; // period in 1/10th ns
 
-  FMC_NORSRAMTimingInitTypeDef nor_timing_init = {
-    // time between address write and address latch (AVD high)
-    // tAAVDS on datasheet, min 4 ns
-    //
-    // AVD low time
-    // tAVDP on datasheet, min 6 ns
-    .FMC_AddressSetupTime = (TAVDP_MIN / time_per_cycle) + 1, // give setup of min 6ns
+  // time between address write and address latch (AVD high)
+  // tAAVDS on datasheet, min 4 ns
+  //
+  // AVD low time
+  // tAVDP on datasheet, min 6 ns
+  const uint32_t addset = (TAVDP_MIN / time_per_cycle) + 1; // give setup of min 6ns
 
-    // time between AVD high (address is available) and OE low (memory can write)
-    // tAVDO on the datasheet, min 4 ns
-    .FMC_AddressHoldTime = (TADVO_MIN / time_per_cycle) + 1, // gives hold of min 4ns
+  // time between AVD high (address is available) and OE low (memory can write)
+  // tAVDO on the datasheet, min 4 ns
+  const uint32_t addhld = (TADVO_MIN / time_per_cycle) + 1; // gives hold of min 4ns
 
-    // time between OE low (memory can write) and valid data being available
-    // FIXME: optimize this equation
-    // current linear equation has slope of 1 cycle/SETUP_STEP, with initial value 1
-    // setupTime based on h_clock frequency
-    // equation derived from existing working values; 5 at 64Mhz, 8 at 128 Mhz
-    // the data was then interpolated into a line, with a padded value of 1
-    .FMC_DataSetupTime = (h_clock / SETUP_STEP) + 1,
+  // time between OE low (memory can write) and valid data being available
+  // FIXME: optimize this equation
+  // current linear equation has slope of 1 cycle/SETUP_STEP, with initial value 1
+  // setupTime based on h_clock frequency
+  // equation derived from existing working values; 5 at 64Mhz, 8 at 128 Mhz
+  // the data was then interpolated into a line, with a padded value of 1
+  const uint32_t datast = (h_clock / SETUP_STEP) + 1;
 
-    // Time between chip selects
-    // not on the datasheet, picked a random safe number
-    // FIXME: at high bus frequencies, more than one cycle may be needed
-    .FMC_BusTurnAroundDuration = 1, // TODO: actually ok? See back-to-back Read/Write Cycle
+  // Time between chip selects
+  // not on the datasheet, picked a random safe number
+  // FIXME: at high bus frequencies, more than one cycle may be needed
+  const uint32_t busturn = 1; // TODO: actually ok? See back-to-back Read/Write Cycle
 
-    .FMC_CLKDivision = 15,             // Not used for async NOR
-    .FMC_DataLatency = 15,             // Not used for async NOR
-    .FMC_AccessMode = FMC_AccessMode_A // Only used for ExtendedMode == FMC_ExtendedMode_Enable,
-                                       // which we don't use
-  };
-
-  FMC_NORSRAMInitTypeDef nor_init = {
-    .FMC_Bank = FMC_Bank1_NORSRAM1,
-    .FMC_DataAddressMux = FMC_DataAddressMux_Enable,
-    .FMC_MemoryType = FMC_MemoryType_NOR,
-    .FMC_MemoryDataWidth = FMC_NORSRAM_MemoryDataWidth_16b,
-    .FMC_BurstAccessMode = FMC_BurstAccessMode_Disable,
-    .FMC_AsynchronousWait = FMC_AsynchronousWait_Disable,
-    .FMC_WaitSignalPolarity = FMC_WaitSignalPolarity_Low,
-    .FMC_WrapMode = FMC_WrapMode_Disable,
-    .FMC_WaitSignalActive = FMC_WaitSignalActive_BeforeWaitState,
-    .FMC_WriteOperation = FMC_WriteOperation_Enable,
-    .FMC_WaitSignal = FMC_WaitSignal_Enable,
-    .FMC_ExtendedMode = FMC_ExtendedMode_Disable,
-    .FMC_WriteBurst = FMC_WriteBurst_Disable,
-    .FMC_ContinousClock = FMC_CClock_SyncOnly,
-    .FMC_ReadWriteTimingStruct = &nor_timing_init
+  // Async multiplexed 16-bit NOR
+  struct fmc_nor_config config = {
+    .bcr = STM32F4_FMC_BCR_MUXEN |
+           PBL_FIELD_PREP(STM32F4_FMC_BCR_MTYP_MASK, STM32F4_FMC_BCR_MTYP_NOR) |
+           PBL_FIELD_PREP(STM32F4_FMC_BCR_MWID_MASK, STM32F4_FMC_BCR_MWID_16) |
+           STM32F4_FMC_BCR_WREN | STM32F4_FMC_BCR_WAITEN,
+    // CLKDIV and DATLAT are not used for async NOR
+    .btr = prv_fmc_btr(addset, addhld, datast, busturn, 15, 15),
   };
 
   // configure the peripheral before we try to read from it
-  prv_switch_flash_mode(&nor_init);
+  prv_switch_flash_mode(&config);
 
   uint16_t configuration_register = prv_read_configuration_register();
   // clear bits that are about to be set
@@ -818,21 +843,17 @@ static status_t flash_impl_set_burst_mode(bool burst_mode) {
 
   // Update necessary parameters for synchronous modes
   if (burst_mode) {
-    nor_init.FMC_BurstAccessMode = FMC_BurstAccessMode_Enable;
-    nor_init.FMC_WaitSignalActive = FMC_WaitSignalActive_DuringWaitState;
-
-    nor_timing_init.FMC_BusTurnAroundDuration = 1;
+    config.bcr |= STM32F4_FMC_BCR_BURSTEN | STM32F4_FMC_BCR_WAITCFG;
 
     // nor_timing_init.FMC_DataSetupTime = 1;           // FIXME: originally set to 1 for 64Mhz
     // but sync burst was not working at this value;
     // commented out so the DataSetupTime for ASYNC (up above) is used instead
     // this is to ensure sync_burst works with dynamic changes to h_clk frequency
 
-    nor_timing_init.FMC_CLKDivision = clk_division; // divide h_clock if h_clock > 108MHZ
-
     uint16_t wait_state = prv_get_num_wait_cycles(h_clock / clk_division);
-    // testing shows that a difference of 4 needs to be maintained between wait_state and latency
-    nor_timing_init.FMC_DataLatency = wait_state - 4;
+    // CLKDIV divides h_clock if h_clock > 108MHZ; testing shows that a difference of 4 needs to
+    // be maintained between wait_state and latency
+    config.btr = prv_fmc_btr(addset, addhld, datast, busturn, clk_division, wait_state - 4);
 
     // Set bits according to value needed - see Table 7.11 in data sheet
     // [15]    Device Read Mode                0b0     Synchronous Read Mode
@@ -855,7 +876,7 @@ static status_t flash_impl_set_burst_mode(bool burst_mode) {
 
   prv_write_configuration_register(configuration_register);
 
-  prv_switch_flash_mode(&nor_init);
+  prv_switch_flash_mode(&config);
 
   prv_poll_for_ready(0);
   flash_impl_release();
