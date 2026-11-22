@@ -181,6 +181,9 @@ static enum {
 static bool s_in_xfer;
 static bool s_rx_more;
 static bool s_scl_high;
+static bool s_sr1_addr_read;
+static bool s_first_ack;
+static bool s_first_rx;
 
 static uint32_t prv_reset_value(uintptr_t addr) {
   switch (addr) {
@@ -216,7 +219,7 @@ static bool prv_i2c1_clock(void) {
 }
 
 static void prv_update_busy(void) {
-  if (s_in_xfer || m.sda_held > 0 || m.busy_glitch) {
+  if (s_in_xfer || m.sda_held > 0 || m.busy_glitch || m.busy_latched) {
     s_regs_i2c1->SR2 |= STM32F4_I2C_SR2_BUSY;
   } else {
     s_regs_i2c1->SR2 &= ~STM32F4_I2C_SR2_BUSY;
@@ -227,7 +230,10 @@ static void prv_i2c1_reset(void) {
   *s_regs_i2c1 = (struct i2c_regs){.DR = DR_IDLE};
   s_phase = PH_IDLE;
   s_in_xfer = false;
+  s_sr1_addr_read = false;
+  s_first_rx = false;
   m.busy_glitch = false;
+  m.busy_latched = false;
   prv_update_busy();
 }
 
@@ -239,6 +245,8 @@ static void prv_regs_reset(void) {
   s_in_xfer = false;
   s_rx_more = false;
   s_scl_high = true;
+  s_sr1_addr_read = false;
+  s_first_rx = false;
 }
 
 static void prv_rcc_write(uint32_t off, uint32_t val) {
@@ -319,10 +327,49 @@ static uint16_t *prv_i2c1_reg(uintptr_t addr) {
   return &((uint16_t *)s_regs_i2c1)[off / 4U];
 }
 
+static uint32_t prv_i2c1_read(uintptr_t off) {
+  struct i2c_regs *r = s_regs_i2c1;
+  const uint16_t val = prv_i2c1_reg(I2C1_BASE + off)[0];
+
+  if (off == STM32F4_I2C_SR1_OFFSET) {
+    s_sr1_addr_read = (val & STM32F4_I2C_SR1_ADDR) != 0U;
+  } else if (off == STM32F4_I2C_SR2_OFFSET) {
+    if (s_sr1_addr_read && s_phase == PH_ADDR && (r->SR1 & STM32F4_I2C_SR1_ADDR) != 0U) {
+      r->SR1 &= ~STM32F4_I2C_SR1_ADDR;
+      s_phase = m.read ? PH_RX : PH_TX;
+      s_first_ack = (r->CR1 & STM32F4_I2C_CR1_ACK) != 0U;
+      s_first_rx = m.read;
+    }
+    s_sr1_addr_read = false;
+  } else if (off == STM32F4_I2C_DR_OFFSET && s_phase == PH_RX &&
+             (r->SR1 & STM32F4_I2C_SR1_RXNE) != 0U) {
+    r->SR1 &= ~STM32F4_I2C_SR1_RXNE;
+    r->DR = DR_IDLE;
+  }
+  return val;
+}
+
+static void prv_i2c1_write(uintptr_t off, uint16_t val) {
+  struct i2c_regs *r = s_regs_i2c1;
+
+  if (off == STM32F4_I2C_CR1_OFFSET && (val & STM32F4_I2C_CR1_SWRST) != 0U) {
+    prv_i2c1_reset();
+    r->CR1 = STM32F4_I2C_CR1_SWRST;
+    return;
+  }
+  if ((r->CR1 & STM32F4_I2C_CR1_SWRST) != 0U && off != STM32F4_I2C_CR1_OFFSET) {
+    return;
+  }
+  if ((off == STM32F4_I2C_CCR_OFFSET || off == STM32F4_I2C_TRISE_OFFSET) &&
+      (r->CR1 & STM32F4_I2C_CR1_PE) != 0U) {
+    m_violation("%s write %04x with PE set", off == STM32F4_I2C_CCR_OFFSET ? "CCR" : "TRISE", val);
+  }
+  prv_i2c1_reg(I2C1_BASE + off)[0] = val;
+}
+
 uint32_t fake_mmio_readl(uintptr_t addr) {
-  uint16_t *i2c_reg = prv_i2c1_reg(addr);
-  if (i2c_reg != NULL) {
-    return *i2c_reg;
+  if (prv_i2c1_reg(addr) != NULL) {
+    return prv_i2c1_read(addr - I2C1_BASE);
   }
   if (addr == GPIOB_BASE + GPIO_IDR) {
     bool level;
@@ -337,9 +384,8 @@ uint32_t fake_mmio_readl(uintptr_t addr) {
 }
 
 void fake_mmio_writel(uint32_t val, uintptr_t addr) {
-  uint16_t *i2c_reg = prv_i2c1_reg(addr);
-  if (i2c_reg != NULL) {
-    *i2c_reg = (uint16_t)val;
+  if (prv_i2c1_reg(addr) != NULL) {
+    prv_i2c1_write(addr - I2C1_BASE, (uint16_t)val);
     return;
   }
   if (addr >= RCC_BASE && addr < RCC_BASE + 0x400U) {
@@ -384,7 +430,8 @@ static void prv_observe(void) {
     r->SR2 = 0U;
   }
   if ((r->CR1 & STM32F4_I2C_CR1_START) != 0U) {
-    if ((r->CR1 & STM32F4_I2C_CR1_PE) == 0U || !prv_i2c1_clock()) {
+    if ((r->CR1 & (STM32F4_I2C_CR1_PE | STM32F4_I2C_CR1_SWRST)) != STM32F4_I2C_CR1_PE ||
+        !prv_i2c1_clock()) {
       m_violation("start with CR1 %04x clock %d", r->CR1, prv_i2c1_clock());
     }
     if (s_dump_regs) {
@@ -427,20 +474,6 @@ static void prv_observe(void) {
   prv_update_busy();
 }
 
-//! The handler read SR1 and SR2, clearing ADDR, and read DR, clearing RXNE.
-static void prv_after_ev(bool had_rxne) {
-  struct i2c_regs *r = s_regs_i2c1;
-
-  if (s_phase == PH_ADDR && (r->SR1 & STM32F4_I2C_SR1_ADDR) != 0U) {
-    r->SR1 &= ~STM32F4_I2C_SR1_ADDR;
-    s_phase = m.read ? PH_RX : PH_TX;
-  }
-  if (s_phase == PH_RX && had_rxne) {
-    r->SR1 &= ~STM32F4_I2C_SR1_RXNE;
-    r->DR = DR_IDLE;
-  }
-}
-
 static bool prv_ev_pending(void) {
   const struct i2c_regs *r = s_regs_i2c1;
   if ((r->CR2 & STM32F4_I2C_CR2_ITEVTEN) == 0U) {
@@ -468,7 +501,8 @@ static bool prv_advance(void) {
     return true;
   }
   if (s_phase == PH_RX && (r->SR1 & STM32F4_I2C_SR1_RXNE) == 0U && s_rx_more) {
-    const bool ack = (r->CR1 & STM32F4_I2C_CR1_ACK) != 0U;
+    const bool ack = s_first_rx ? s_first_ack : (r->CR1 & STM32F4_I2C_CR1_ACK) != 0U;
+    s_first_rx = false;
     r->DR = m_read(ack);
     r->SR1 |= STM32F4_I2C_SR1_RXNE;
     s_rx_more = ack;
@@ -503,9 +537,7 @@ static int prv_pump(void) {
       continue;
     }
     if (prv_ev_pending()) {
-      const bool had_rxne = (s_regs_i2c1->SR1 & STM32F4_I2C_SR1_RXNE) != 0U;
       pbl_i2c_stm32_ev_irq_handler(&dt_i2c1_inst);
-      prv_after_ev(had_rxne);
       continue;
     }
     if (!prv_advance()) {
@@ -734,6 +766,49 @@ void test_i2c_stm32__busy_glitch(void) {
   m_trace_start();
   cl_assert_equal_i(pbl_i2c_reg_read_byte(&s_pmic_i2c, 0x00, &val), 0);
   CHECK_TRACE(TRACE_BUSY_GLITCH);
+}
+
+void test_i2c_stm32__busy_latched_cleared_by_swrst(void) {
+  prv_pmic_init();
+  uint8_t val;
+  m.busy_latched = true;
+  prv_update_busy();
+  m_trace_start();
+  cl_assert_equal_i(pbl_i2c_reg_read_byte(&s_pmic_i2c, 0x00, &val), 0);
+  CHECK_TRACE(TRACE_BUSY_LATCHED_CLEARED_BY_SWRST);
+  cl_assert_equal_i(val, 0x01);
+}
+
+void test_i2c_stm32__one_byte_read_nacked(void) {
+  prv_pmic_init();
+  uint8_t val;
+  m.pmic.regs[0x02] = 0x5a;
+  m.pmic.regs[0x03] = 0xa5;
+  m_trace_start();
+  cl_assert_equal_i(pbl_i2c_reg_read_byte(&s_pmic_i2c, 0x02, &val), 0);
+  CHECK_TRACE(TRACE_ONE_BYTE_READ_NACKED);
+  cl_assert_equal_i(val, 0x5a);
+}
+
+void test_i2c_stm32__read_after_one_byte_read_acked(void) {
+  prv_pmic_init();
+  uint8_t reg = 0x02;
+  uint8_t first;
+  uint8_t rest[2];
+  struct pbl_i2c_msg msgs[] = {
+    {.buf = &reg, .len = 1U, .flags = PBL_I2C_MSG_WRITE},
+    {.buf = &first, .len = 1U, .flags = PBL_I2C_MSG_READ},
+    {.buf = rest, .len = 2U, .flags = PBL_I2C_MSG_READ},
+  };
+  m.pmic.regs[0x02] = 0x5a;
+  m.pmic.regs[0x03] = 0xa5;
+  m.pmic.regs[0x04] = 0x3c;
+  m_trace_start();
+  cl_assert_equal_i(pbl_i2c_transfer(&s_pmic_i2c, msgs, ARRAY_LENGTH(msgs)), 0);
+  CHECK_TRACE(TRACE_READ_AFTER_ONE_BYTE_READ_ACKED);
+  cl_assert_equal_i(first, 0x5a);
+  cl_assert_equal_i(rest[0], 0xa5);
+  cl_assert_equal_i(rest[1], 0x3c);
 }
 
 void test_i2c_stm32__bus_clear(void) {
