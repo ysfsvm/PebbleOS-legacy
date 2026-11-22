@@ -18,9 +18,7 @@ backlight:
 flash:
   symbol: S29VS_FLASH
   include: pbl/drivers/flash/s29vs.h
-accel:
-  symbol: "&snowy_accel.accel"
-  include: snowy/snowy_devices.h
+accel: accel
 mag:
   symbol: "&snowy_mag.mag"
   include: snowy/snowy_devices.h

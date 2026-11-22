@@ -129,6 +129,20 @@
 	status = "okay";
 };
 
+// Accelerometer; interrupts and axes in BOARD_CONFIG_ACCEL
+&spi1 {
+	pinctrl-0 = <&spi1_default>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpioa 4 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	accel: accelerometer@0 {
+		compatible = "bosch,bmi160";
+		reg = <0>;
+		spi-max-frequency = <5000000>;
+	};
+};
+
 // CC2564 HCI, driven by the legacy HCI transport
 &usart1 {
 	pinctrl-0 = <&usart1_default>;

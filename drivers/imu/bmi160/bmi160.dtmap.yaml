@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
+# SPDX-License-Identifier: Apache-2.0
+
+compatible: bosch,bmi160
+config: ACCEL_BMI160
+class: accel
+define: PBL_BMI160_DEFINE
+args:
+  - parent: spi
+  - reg: 0
+  - prop: spi-max-frequency
+  - flags:
+      spi-cpha: PBL_SPI_CPHA
+      spi-cpol: PBL_SPI_CPOL

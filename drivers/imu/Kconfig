@@ -21,6 +21,8 @@ if ACCEL
 
 config ACCEL_BMI160
     bool "Bosch BMI160"
+    default DT_HAS_BOSCH_BMI160_ENABLED
+    select SPI
     help
       Support for the Bosch BMI160 accelerometer/gyroscope.
 

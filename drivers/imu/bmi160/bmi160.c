@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #include <pbl/board.h>
+#include <pbl/devicetree.h>
 #include <pbl/drivers/accel.h>
 #include <pbl/drivers/imu/bmi160/bmi160.h>
 #include <pbl/drivers/rtc.h>
@@ -150,9 +151,7 @@ static void prv_write_reg(uint8_t reg, uint8_t value) {
 }
 
 static void prv_burst_read(uint8_t reg, void *buf, size_t len) {
-  bmi160_begin_burst(reg | BMI160_READ_FLAG);
-  bmi160_burst_read(buf, len);
-  bmi160_end_burst();
+  bmi160_burst_read(reg | BMI160_READ_FLAG, buf, len);
 }
 
 static void prv_read_modify_write(uint8_t reg, uint8_t value, uint8_t mask) {
@@ -413,8 +412,14 @@ static void bmi160_IRQ1_handler(void *arg) {
   }
 }
 
+#define FIFO_FRAME_LEN 6U
+
+// Rounded up to whole frames
+static uint8_t
+    s_fifo_buf[(BMI160_FIFO_LEN_BYTES + FIFO_FRAME_LEN - 1U) / FIFO_FRAME_LEN * FIFO_FRAME_LEN];
+
 static uint8_t prv_get_fifo_frame_size(void) {
-  return 6; // we are just storing {x, y, z} accel data in the fifo today
+  return FIFO_FRAME_LEN; // we are just storing {x, y, z} accel data in the fifo today
 }
 
 static uint16_t prv_get_current_fifo_length_and_timestamp(uint64_t *timestamp_us) {
@@ -470,25 +475,23 @@ static void prv_drain_fifo(void) {
 
   uint8_t fifo_frame_len = prv_get_fifo_frame_size();
 
-  bmi160_begin_burst(BMI160_REG_FIFO_DATA | BMI160_READ_FLAG);
-
   uint8_t curr_num_samples = (len / fifo_frame_len);
   uint32_t curr_sampling_interval_us = prv_get_min_sampling_interval_us();
   uint64_t start_time = last_frame_time - curr_num_samples * curr_sampling_interval_us;
 
-  for (int i = 0; i < len; i += fifo_frame_len) {
-    uint8_t burst_buf[fifo_frame_len];
-    bmi160_burst_read(&burst_buf[0], fifo_frame_len);
+  const size_t read_len =
+      (MIN(len, BMI160_FIFO_LEN_BYTES) + fifo_frame_len - 1U) / fifo_frame_len * fifo_frame_len;
+  bmi160_burst_read(BMI160_REG_FIFO_DATA | BMI160_READ_FLAG, s_fifo_buf, read_len);
 
+  for (size_t i = 0; i < read_len; i += fifo_frame_len) {
     AccelDriverSample data;
-    prv_process_fifo_frame(burst_buf, &data);
+    prv_process_fifo_frame(&s_fifo_buf[i], &data);
     data.timestamp_us = start_time;
     start_time += curr_sampling_interval_us;
 
-    BMI160_DBG("%2d: %" PRId16 " %" PRId16 " %" PRId16, i, data.x, data.y, data.z);
+    BMI160_DBG("%2d: %" PRId16 " %" PRId16 " %" PRId16, (int)i, data.x, data.y, data.z);
     pbl_accel_report_sample(&s_dev->accel, &data);
   }
-  bmi160_end_burst();
 
   BMI160_DBG("%d bytes remain", prv_get_current_fifo_length_and_timestamp(&last_frame_time));
 
@@ -599,14 +602,18 @@ static void prv_update_accel_interrupts(bool use, AccelOperatingMode mode) {
 #define PROBE_RETRY_DELAY_US 5000U
 
 static int prv_init(const struct pbl_accel *accel) {
+  int ret;
+
   s_dev = container_of(accel, const struct pbl_bmi160, accel);
 
-  bmi160_spi_init();
+  ret = bmi160_spi_init(&s_dev->spi);
+  if (ret != 0) {
+    return ret;
+  }
 
   static const pbl_intc_handler_t s_handlers[] = {bmi160_IRQ1_handler, bmi160_IRQ2_handler};
   for (unsigned int i = 0; i < ARRAY_LENGTH(s_irqs); i++) {
     const struct pbl_gpio *gpio = &BOARD_CONFIG_ACCEL.accel_int_gpios[i];
-    int ret;
 
     ret = pbl_gpio_to_irq(gpio, PBL_IRQ_TYPE_EDGE_RISING, &s_irqs[i]);
     if (ret != 0) {
@@ -1060,3 +1067,5 @@ const struct pbl_accel_ops pbl_bmi160_ops = {
   .set_shake_sensitivity_high = prv_set_shake_sensitivity_high_op,
   .set_shake_sensitivity_percent = prv_set_shake_sensitivity_percent,
 };
+
+#include PBL_DT_INSTANCES(bosch_bmi160)
