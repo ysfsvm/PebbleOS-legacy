@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include <pbl/drivers/clk.h>
@@ -51,6 +52,18 @@ struct pbl_gpio_stm32 {
  * @param speed Output speed, 0 (low) to 3 (very high).
  */
 void pbl_gpio_stm32_af(const struct pbl_gpio *gpio, uint8_t af, uint32_t flags, uint32_t speed);
+
+/**
+ * @brief Drive a pin as an output, its level set before its mode.
+ *
+ * Initialises the pin's port first.
+ *
+ * @param gpio Pin on an STM32 port.
+ * @param level Level to drive.
+ * @param flags @c PBL_GPIO_PULL_UP, @c PBL_GPIO_PULL_DOWN and/or @c PBL_GPIO_OPEN_DRAIN.
+ * @param speed Output speed, 0 (low) to 3 (very high).
+ */
+void pbl_gpio_stm32_output(const struct pbl_gpio *gpio, bool level, uint32_t flags, uint32_t speed);
 
 /**
  * @brief Find a port.

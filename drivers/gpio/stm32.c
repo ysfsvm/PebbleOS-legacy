@@ -87,6 +87,16 @@ void pbl_gpio_stm32_af(const struct pbl_gpio *gpio, uint8_t af, uint32_t flags, 
   prv_init_pin(port, gpio->pin, STM32F4_GPIO_MODE_AF, flags | gpio->flags, speed);
 }
 
+void pbl_gpio_stm32_output(const struct pbl_gpio *gpio, bool level, uint32_t flags,
+                           uint32_t speed) {
+  const struct pbl_gpio_stm32 *port = prv_port(gpio->port);
+
+  (void)pbl_device_init(&gpio->port->dev);
+  pbl_writel(level ? STM32F4_GPIO_BSRR_SET(gpio->pin) : STM32F4_GPIO_BSRR_RESET(gpio->pin),
+             port->base + STM32F4_GPIO_BSRR_OFFSET);
+  prv_init_pin(port, gpio->pin, STM32F4_GPIO_MODE_OUTPUT, flags | gpio->flags, speed);
+}
+
 void pbl_gpio_stm32_analog(const struct pbl_gpio *gpio) {
   (void)pbl_device_init(&gpio->port->dev);
   prv_init_pin(prv_port(gpio->port), gpio->pin, STM32F4_GPIO_MODE_ANALOG, 0U, 0U);

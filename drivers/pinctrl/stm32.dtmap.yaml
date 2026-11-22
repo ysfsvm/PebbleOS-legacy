@@ -13,5 +13,7 @@ pinctrl:
     bias-pull-down: PBL_PINCTRL_STM32_PULL_DOWN
     drive-push-pull: PBL_PINCTRL_STM32_PUSH_PULL
     drive-open-drain: PBL_PINCTRL_STM32_OPEN_DRAIN
+    output-low: PBL_PINCTRL_STM32_OUTPUT_LOW
+    output-high: PBL_PINCTRL_STM32_OUTPUT_HIGH
   values:
     slew-rate: "PBL_PINCTRL_STM32_SLEW({value})"

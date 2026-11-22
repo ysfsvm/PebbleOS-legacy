@@ -18,6 +18,7 @@
 #define OTYPER  0x04U
 #define OSPEEDR 0x08U
 #define PUPDR   0x0cU
+#define BSRR    0x18U
 #define AFRL    0x20U
 #define AFRH    0x24U
 
@@ -27,6 +28,8 @@ static struct {
 } s_regs[NUM_REGS];
 static int s_num_regs;
 static uint32_t s_fill;
+static uintptr_t s_writes[NUM_REGS];
+static int s_num_writes;
 
 static uint32_t *prv_reg(uintptr_t addr) {
   for (int i = 0; i < s_num_regs; i++) {
@@ -46,12 +49,25 @@ uint32_t fake_mmio_readl(uintptr_t addr) {
 
 void fake_mmio_writel(uint32_t val, uintptr_t addr) {
   *prv_reg(addr) = val;
+  if (s_num_writes < NUM_REGS) {
+    s_writes[s_num_writes++] = addr;
+  }
+}
+
+static int prv_write_index(uintptr_t addr) {
+  for (int i = 0; i < s_num_writes; i++) {
+    if (s_writes[i] == addr) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 static void prv_reset(uint32_t fill) {
   memset(s_regs, 0, sizeof(s_regs));
   s_num_regs = 0;
   s_fill = fill;
+  s_num_writes = 0;
 }
 
 static uint32_t prv_field2(uintptr_t base, uint32_t offset, uint8_t pin) {
@@ -184,5 +200,34 @@ void test_pinctrl_stm32__bits_outside_the_cell_are_refused(void) {
   cl_assert_equal_i(prv_select(&dt_bit19_pins, 0U), -EINVAL);
   cl_assert_equal_i(prv_select(&dt_bit24_pins, 0U), -EINVAL);
   cl_assert_equal_i(prv_select(&dt_mode19_pins, 0U), -EINVAL);
+  cl_assert_equal_i(s_num_regs, 0);
+}
+
+void test_pinctrl_stm32__a_gpio_pin_driven_low(void) {
+  for (size_t i = 0; i < ARRAY_LENGTH(s_fills); i++) {
+    cl_assert_equal_i(prv_select(&dt_out_low_pins, s_fills[i]), 0);
+
+    prv_assert_pin(GPIOA_BASE, 1U, 1U, 2U, 1U, false);
+    prv_assert_others(GPIOA_BASE, 3U << 2, 1U << 1);
+    cl_assert_equal_i(*prv_reg(GPIOA_BASE + BSRR), 1U << 17);
+    cl_assert(prv_write_index(GPIOA_BASE + BSRR) >= 0);
+    cl_assert(prv_write_index(GPIOA_BASE + BSRR) < prv_write_index(GPIOA_BASE + MODER));
+  }
+}
+
+void test_pinctrl_stm32__a_gpio_pin_driven_high_open_drain(void) {
+  for (size_t i = 0; i < ARRAY_LENGTH(s_fills); i++) {
+    cl_assert_equal_i(prv_select(&dt_out_high_pins, s_fills[i]), 0);
+
+    prv_assert_pin(GPIOG_BASE, 13U, 1U, 0U, 0U, true);
+    prv_assert_others(GPIOG_BASE, 3U << 26, 1U << 13);
+    cl_assert_equal_i(*prv_reg(GPIOG_BASE + BSRR), 1U << 13);
+    cl_assert(prv_write_index(GPIOG_BASE + BSRR) < prv_write_index(GPIOG_BASE + MODER));
+  }
+}
+
+void test_pinctrl_stm32__both_levels_or_a_level_on_a_function_are_refused(void) {
+  cl_assert_equal_i(prv_select(&dt_out_both_pins, 0U), -EINVAL);
+  cl_assert_equal_i(prv_select(&dt_af_level_pins, 0U), -EINVAL);
   cl_assert_equal_i(s_num_regs, 0);
 }
