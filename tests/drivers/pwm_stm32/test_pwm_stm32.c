@@ -148,6 +148,17 @@ static struct tim *prv_tim_at(uintptr_t addr) {
   return NULL;
 }
 
+static bool s_tim_writes;
+
+static const char *prv_field_name(uint32_t off) {
+  for (int f = 0; f < NUM_FIELDS; f++) {
+    if (s_field_offsets[f] == off) {
+      return s_field_names[f];
+    }
+  }
+  return "?";
+}
+
 static void prv_tims_reset(void) {
   for (size_t i = 0; i < ARRAY_LENGTH(s_tims); i++) {
     memset(s_tims[i].seen, 0, sizeof(s_tims[i].seen));
@@ -170,7 +181,7 @@ static void prv_tims_snapshot(void) {
         changed = true;
       }
     }
-    if (changed) {
+    if (changed && !s_tim_writes) {
       m_trace_line("%s", line);
     }
   }
@@ -292,6 +303,9 @@ void fake_mmio_writel(uint32_t val, uintptr_t addr) {
 
   if (t != NULL && (*prv_reg(RCC_BASE + t->gate_off) & PBL_BIT(t->gate_bit)) == 0U) {
     m_trace_line("VIOLATION %s written with its clock off", t->name);
+  }
+  if (t != NULL && s_tim_writes) {
+    m_trace_line("%s %s %04x", t->name, prv_field_name(addr - t->base), (unsigned int)val);
   }
   if (addr >= RCC_BASE && addr < RCC_BASE + 0x400U) {
     prv_rcc_write(addr - RCC_BASE, val);
@@ -426,6 +440,7 @@ static void prv_vibe_stop(void) {
 void test_pwm_stm32__initialize(void) {
   s_apb_undivided = false;
   s_lockout = false;
+  s_tim_writes = false;
   s_trace_on = false;
   memset(s_regs, 0, sizeof(s_regs));
   s_num_regs = 0;
@@ -548,4 +563,45 @@ void test_pwm_stm32__period_too_short(void) {
   state.enabled = true;
   cl_assert_equal_i(pbl_pwm_apply(&pwm, &state), -EINVAL);
   CHECK_TRACE(TRACE_PERIOD_TOO_SHORT);
+}
+
+void test_pwm_stm32__each_timer_write_in_order(void) {
+  static const char expected[] =
+      "= backlight 80\n"
+      "stop block\n"
+      "clk tim12 on\n"
+      "tim12 CR1 0080\n"
+      "tim12 ARR f423\n"
+      "tim12 PSC 0002\n"
+      "tim12 EGR 0001\n"
+      "tim12 CCER 0000\n"
+      "tim12 CCMR1 0068\n"
+      "tim12 CCR1 c350\n"
+      "tim12 CCER 0001\n"
+      "pb14 af 9\n"
+      "pb14 speed 3\n"
+      "pb14 pull down\n"
+      "pb14 af\n"
+      "tim12 CR1 0081\n"
+      "= backlight 40\n"
+      "tim12 CCER 0000\n"
+      "tim12 CCMR1 0068\n"
+      "tim12 CCR1 61a8\n"
+      "tim12 CCER 0001\n"
+      "= backlight 0\n"
+      "pb14 speed 0\n"
+      "pb14 pull none\n"
+      "pb14 out\n"
+      "tim12 CR1 0080\n"
+      "clk tim12 off\n"
+      "stop release\n";
+
+  prv_init_devices();
+  s_tim_writes = true;
+  prv_trace_start();
+  prv_brightness(80);
+  prv_brightness(40);
+  prv_brightness(0);
+  prv_tims_snapshot();
+  cl_assert_equal_s(m_trace_stop(), expected);
 }
