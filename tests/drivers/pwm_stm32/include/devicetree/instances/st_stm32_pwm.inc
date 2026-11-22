@@ -1,8 +1,6 @@
 /* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-/* TIM10 and TIM12 of the snowy tree, as the generator writes them */
-
 #include <pbl/drivers/clk.h>
 #include <pbl/drivers/clk/stm32f4.h>
 

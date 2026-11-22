@@ -167,6 +167,15 @@
 	status = "okay";
 };
 
+&gpiof {
+	vibe-enable-hog {
+		gpio-hog;
+		gpios = <4 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "vibe-enable";
+	};
+};
+
 &timers10 {
 	status = "okay";
 
