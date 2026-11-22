@@ -2088,16 +2088,16 @@ static bool prv_written_with_sector_pages(void) {
 #define CV_PAGES         (PART_FILESYSTEM_SIZE / PFS_PAGE_SIZE)
 #define CV_OLD_PAYLOAD   (SECTOR_SIZE_BYTES - sizeof(PageHeader))
 #define CV_NEW_PAYLOAD   (PFS_PAGE_SIZE - sizeof(PageHeader))
-#define CV_GUARD_PAGE    1
 #define CV_CHUNK         512
 #define CV_MARKER_NAME   "PFS-CONVERT"
-#define CV_MARKER_MAGIC  0x50465338
+#define CV_MARKER_MAGIC  0x50465339
+#define CV_BITMAP_BYTES  DIVIDE_CEIL(CV_SECTORS, 8)
+#define CV_MARKER_SIZE   (sizeof(uint32_t) + CV_BITMAP_BYTES)
 #define CV_DELETED_START (0xff & ~DELETED_START_PAGE_MASK)
 #define CV_DELETED_CONT  (0xff & ~DELETED_CONT_PAGE_MASK)
 // Two file events and two erases per sector, and the single steps
-#define CV_MAX_STEPS (4 * CV_SECTORS + 8)
+#define CV_MAX_STEPS (4 * CV_SECTORS + 16)
 
-static_assert(PFS_PAGES_PER_ERASE_SECTOR > (CV_GUARD_PAGE + 1), "No page left beside the guard");
 static_assert(CV_PAGES < INVALID_PAGE, "Page indexes must fit in a page header");
 
 typedef enum {
@@ -2108,11 +2108,13 @@ typedef enum {
   CvPageWalk,
   CvPageStart,
   CvPageCont,
+  CvPageStale,
 } CvPageState;
 
 typedef enum {
   CvOldConvert = 0,
   CvOldCopied,
+  CvOldLoses,
   CvOldDrop,
 } CvOldAction;
 
@@ -2127,14 +2129,18 @@ typedef struct {
   bool sector_new[CV_SECTORS];
   bool sector_owned[CV_SECTORS];
   bool sector_live[CV_SECTORS];
+  bool sector_inner[CV_SECTORS];
+  bool sector_linked[CV_SECTORS];
   CvOldFile old[CV_SECTORS];
   uint16_t chain[CV_SECTORS];
   uint8_t buf[CV_CHUNK];
+  uint8_t buf2[CV_CHUNK];
   uint16_t num_old;
   uint16_t marker_page;
   uint16_t free_pages;
   uint16_t junk_pages;
   uint16_t blank_pages;
+  uint16_t stale_files;
   bool erase_failed;
 } CvState;
 
@@ -2170,8 +2176,8 @@ static uint16_t prv_cv_sector_of(uint16_t page) {
   return page / PFS_PAGES_PER_ERASE_SECTOR;
 }
 
-static bool prv_cv_is_guard(uint16_t page) {
-  return (page % PFS_PAGES_PER_ERASE_SECTOR) == CV_GUARD_PAGE;
+static bool prv_cv_is_sector_start(uint16_t page) {
+  return (page % PFS_PAGES_PER_ERASE_SECTOR) == 0;
 }
 
 static uint32_t prv_cv_content_len(const FileHeader *fh) {
@@ -2226,7 +2232,7 @@ static bool prv_cv_is_marker(uint16_t page) {
   PageHeader hdr;
   FileHeader fh;
   if (!prv_cv_read_file(offs, &hdr, &fh) || (hdr.next_page != INVALID_PAGE) ||
-      (fh.file_size != sizeof(uint32_t)) || !prv_cv_name_is(offs, &fh, CV_MARKER_NAME)) {
+      (fh.file_size != CV_MARKER_SIZE) || !prv_cv_name_is(offs, &fh, CV_MARKER_NAME)) {
     return false;
   }
 
@@ -2242,6 +2248,91 @@ static bool prv_cv_next_page(uint16_t page, uint16_t limit, uint16_t *next) {
   *next = hdr.next_page;
   return (hdr.next_page != INVALID_PAGE) && (crc8_next_page(hdr.next_page) == hdr.next_page_crc) &&
          (hdr.next_page < limit);
+}
+
+static bool prv_cv_is_cont(const PageHeader *hdr) {
+  return IS_PAGE_TYPE(hdr->page_flags, PAGE_FLAG_CONT_PAGE) || (hdr->page_flags == CV_DELETED_CONT);
+}
+
+//! The count - 1 pages after page are continuation pages, live or deleted
+static bool prv_cv_page_chain(uint16_t page, uint32_t count) {
+  if (count > CV_PAGES) {
+    return false;
+  }
+  for (uint32_t i = 1; i < count; i++) {
+    PageHeader hdr;
+    if (!prv_cv_next_page(page, CV_PAGES, &page)) {
+      return false;
+    }
+    prv_cv_read(prv_page_to_flash_offset(page), &hdr, sizeof(hdr));
+    if (!prv_cv_is_cont(&hdr) || !prv_is_page_header(&hdr)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+//! The count - 1 sectors after sector start with live continuation pages
+static bool prv_cv_sector_chain(uint16_t sector, uint32_t count) {
+  if (count > CV_SECTORS) {
+    return false;
+  }
+  for (uint32_t i = 1; i < count; i++) {
+    PageHeader hdr;
+    if (!prv_cv_next_page(sector * PFS_PAGES_PER_ERASE_SECTOR, CV_SECTORS, &sector)) {
+      return false;
+    }
+    prv_cv_read(sector * SECTOR_SIZE_BYTES, &hdr, sizeof(hdr));
+    if ((hdr.version != PFS_CUR_VERSION) || !IS_PAGE_TYPE(hdr.page_flags, PAGE_FLAG_CONT_PAGE) ||
+        !prv_cv_crc_ok(&hdr)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+//! A garbage collection of small pages is cut
+static bool prv_cv_small_page_gc(void) {
+  for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
+    const uint32_t offs = sector * SECTOR_SIZE_BYTES;
+    PageHeader hdr;
+    FileHeader fh;
+    if (prv_cv_read_file(offs, &hdr, &fh) && prv_cv_name_is(offs, &fh, GC_FILE_NAME) &&
+        prv_cv_page_chain(sector * PFS_PAGES_PER_ERASE_SECTOR,
+                          DIVIDE_CEIL(prv_cv_content_len(&fh), CV_NEW_PAYLOAD))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+//! A complete file at the start of the sector that only sector-sized pages can hold
+static bool prv_cv_is_sector_page_file(uint16_t sector) {
+  const uint32_t offs = sector * SECTOR_SIZE_BYTES;
+  PageHeader hdr;
+  FileHeader fh;
+  if (!prv_cv_read_file(offs, &hdr, &fh)) {
+    return false;
+  }
+
+  const uint32_t len = prv_cv_content_len(&fh);
+  if ((len <= CV_NEW_PAYLOAD) ||
+      prv_cv_page_chain(sector * PFS_PAGES_PER_ERASE_SECTOR, DIVIDE_CEIL(len, CV_NEW_PAYLOAD))) {
+    return false;
+  }
+  if (len <= CV_OLD_PAYLOAD) {
+    return hdr.next_page == INVALID_PAGE;
+  }
+  return prv_cv_sector_chain(sector, DIVIDE_CEIL(len, CV_OLD_PAYLOAD)) && !prv_cv_small_page_gc();
+}
+
+static bool prv_cv_has_sector_page_file(void) {
+  for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
+    if (prv_cv_is_sector_page_file(sector)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static CvPageState prv_cv_classify(uint16_t page) {
@@ -2319,21 +2410,123 @@ static void prv_cv_find_files(CvState *st) {
   }
 }
 
-static bool prv_cv_has_copy(const CvState *st, uint32_t old_offs, const FileHeader *old_fh) {
-  for (uint16_t page = 0; page < CV_PAGES; page++) {
-    if ((st->page[page] != CvPageStart) || (page == st->marker_page)) {
-      continue;
+static uint8_t prv_cv_namelen(uint16_t page) {
+  uint8_t namelen;
+  prv_cv_read(
+      prv_page_to_flash_offset(page) + FILEHEADER_OFFSET + offsetof(FileHeader, file_namelen),
+      &namelen, sizeof(namelen));
+  return namelen;
+}
+
+static bool prv_cv_same_name(uint16_t a, uint16_t b) {
+  const uint8_t namelen = prv_cv_namelen(a);
+  return (namelen == prv_cv_namelen(b)) &&
+         prv_cv_names_equal(prv_page_to_flash_offset(a), prv_page_to_flash_offset(b), namelen);
+}
+
+static bool prv_cv_is_new_file(const CvState *st, uint16_t page) {
+  return (st->page[page] == CvPageStart) && (page != st->marker_page);
+}
+
+static void prv_cv_old_read(const CvState *st, uint32_t pos, uint8_t *buf, size_t len);
+
+//! The file at page has the content of the old file in st->chain
+static bool prv_cv_same_content(CvState *st, uint16_t page, const FileHeader *old_fh) {
+  uint32_t size;
+  prv_cv_read(prv_page_to_flash_offset(page) + FILEHEADER_OFFSET, &size, sizeof(size));
+  if (size != old_fh->file_size) {
+    return false;
+  }
+
+  const uint32_t len = prv_cv_content_len(old_fh);
+  for (uint32_t pos = FILEDATA_LEN + old_fh->file_namelen; pos < len;) {
+    const uint32_t in_page = pos % CV_NEW_PAYLOAD;
+    const size_t n = MIN(MIN(len - pos, CV_CHUNK), CV_NEW_PAYLOAD - in_page);
+    prv_cv_old_read(st, pos, st->buf, n);
+    prv_cv_read(prv_page_to_flash_offset(page) + sizeof(PageHeader) + in_page, st->buf2, n);
+    if (memcmp(st->buf, st->buf2, n) != 0) {
+      return false;
     }
-    const uint32_t offs = prv_page_to_flash_offset(page);
-    uint8_t namelen;
-    prv_cv_read(offs + FILEHEADER_OFFSET + offsetof(FileHeader, file_namelen), &namelen,
-                sizeof(namelen));
-    if ((namelen == old_fh->file_namelen) &&
-        prv_cv_names_equal(offs, old_offs, old_fh->file_namelen)) {
-      return true;
+    pos += n;
+    if (((pos % CV_NEW_PAYLOAD) == 0) && (pos < len) && !prv_cv_next_page(page, CV_PAGES, &page)) {
+      return false;
     }
   }
-  return false;
+  return true;
+}
+
+static uint16_t prv_cv_old_chain(CvState *st, uint16_t sector, const FileHeader *fh);
+
+static void prv_cv_mark_stale(CvState *st, uint16_t page) {
+  st->page[page] = CvPageStale;
+  st->stale_files++;
+}
+
+//! The file at page is a copy of the old file at sector
+static bool prv_cv_is_copy(CvState *st, uint16_t sector, uint16_t page) {
+  PageHeader hdr;
+  FileHeader fh;
+  prv_cv_read_file(sector * SECTOR_SIZE_BYTES, &hdr, &fh);
+  prv_cv_old_chain(st, sector, &fh);
+  return prv_cv_same_content(st, page, &fh);
+}
+
+//! Keeps the first file of each name at a sector start, or its copy
+static void prv_cv_resolve_names(CvState *st) {
+  uint16_t copy[CV_SECTORS];
+  uint8_t old_of[CV_SECTORS];
+  bool winner[CV_SECTORS];
+  for (uint16_t s = 0; s < CV_SECTORS; s++) {
+    const uint16_t page = s * PFS_PAGES_PER_ERASE_SECTOR;
+    copy[s] = INVALID_PAGE;
+    old_of[s] = UINT8_MAX;
+    winner[s] = st->sector_new[s] && prv_cv_is_new_file(st, page);
+  }
+  for (uint16_t i = 0; i < st->num_old; i++) {
+    if (st->old[i].action != CvOldDrop) {
+      old_of[st->old[i].sector] = i;
+      winner[st->old[i].sector] = true;
+    }
+  }
+
+  for (uint16_t s = 0; s < CV_SECTORS; s++) {
+    const uint16_t page = s * PFS_PAGES_PER_ERASE_SECTOR;
+    uint16_t w = 0;
+    while (winner[s] && (w < s) &&
+           !(winner[w] && prv_cv_same_name(w * PFS_PAGES_PER_ERASE_SECTOR, page))) {
+      w++;
+    }
+    if (!winner[s] || (w == s)) {
+      continue;
+    }
+    winner[s] = false;
+    if (old_of[s] != UINT8_MAX) {
+      st->old[old_of[s]].action = CvOldLoses;
+    } else if ((old_of[w] != UINT8_MAX) && (copy[w] == INVALID_PAGE) &&
+               prv_cv_is_copy(st, w, page)) {
+      copy[w] = page;
+    } else {
+      prv_cv_mark_stale(st, page);
+    }
+  }
+
+  for (uint16_t s = 0; s < CV_SECTORS; s++) {
+    const uint16_t first = s * PFS_PAGES_PER_ERASE_SECTOR;
+    for (uint16_t page = 0; winner[s] && (page < CV_PAGES); page++) {
+      if (prv_cv_is_sector_start(page) || !prv_cv_is_new_file(st, page) ||
+          !prv_cv_same_name(first, page)) {
+        continue;
+      }
+      if ((old_of[s] != UINT8_MAX) && (copy[s] == INVALID_PAGE) && prv_cv_is_copy(st, s, page)) {
+        copy[s] = page;
+      } else {
+        prv_cv_mark_stale(st, page);
+      }
+    }
+    if ((old_of[s] != UINT8_MAX) && (copy[s] != INVALID_PAGE)) {
+      st->old[old_of[s]].action = CvOldCopied;
+    }
+  }
 }
 
 //! Fills st->chain
@@ -2403,9 +2596,161 @@ static void prv_cv_find_old_files(CvState *st) {
         break;
       }
     }
+  }
+}
 
-    if ((f->action == CvOldConvert) && prv_cv_has_copy(st, offs, &fh)) {
-      f->action = CvOldCopied;
+static void prv_cv_find_stale_markers(CvState *st) {
+  for (uint16_t page = 0; page < CV_PAGES; page++) {
+    const uint32_t offs = prv_page_to_flash_offset(page);
+    FileHeader fh;
+    if ((st->page[page] != CvPageStart) || (page == st->marker_page)) {
+      continue;
+    }
+    prv_cv_read(offs + FILEHEADER_OFFSET, &fh, sizeof(fh));
+    if (prv_cv_name_is(offs, &fh, CV_MARKER_NAME)) {
+      st->page[page] = CvPageStale;
+      st->stale_files++;
+    }
+  }
+}
+
+static uint32_t prv_cv_bitmap_offs(uint16_t marker_page) {
+  return prv_page_to_flash_offset(marker_page) + FILE_NAME_OFFSET + strlen(CV_MARKER_NAME) +
+         sizeof(uint32_t);
+}
+
+//! Sectors of the old layout keep their bit set
+static void prv_cv_read_bitmap(CvState *st) {
+  uint8_t bits[CV_BITMAP_BYTES];
+  prv_cv_read(prv_cv_bitmap_offs(st->marker_page), bits, sizeof(bits));
+  for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
+    st->sector_new[sector] = (bits[sector / 8] & (1 << (sector % 8))) == 0;
+  }
+}
+
+static void prv_cv_mark_new(CvState *st, uint16_t sector) {
+  const uint8_t bits = 0xff & ~(1 << (sector % 8));
+  prv_cv_write(prv_cv_bitmap_offs(st->marker_page) + sector / 8, &bits, sizeof(bits));
+  st->sector_new[sector] = true;
+}
+
+//! Page 0 of a sector, as the old firmware wrote it
+typedef enum {
+  CvHeadOther = 0,
+  CvHeadEmpty,
+  CvHeadSmall,
+  CvHeadPages,
+  CvHeadSector,
+  CvHeadCont,
+} CvHead;
+
+static CvHead prv_cv_head(uint16_t sector) {
+  const uint16_t first = sector * PFS_PAGES_PER_ERASE_SECTOR;
+  const uint32_t offs = prv_page_to_flash_offset(first);
+  PageHeader hdr;
+  prv_cv_read(offs, &hdr, sizeof(hdr));
+
+  if (prv_cv_all_ff(&hdr, sizeof(hdr))) {
+    return CvHeadEmpty;
+  }
+  if (!prv_is_page_header(&hdr)) {
+    return CvHeadOther;
+  }
+  if (page_is_erased(hdr.page_flags)) {
+    return CvHeadEmpty;
+  }
+  if (prv_cv_is_cont(&hdr)) {
+    return CvHeadCont;
+  }
+  if (!IS_PAGE_TYPE(hdr.page_flags, PAGE_FLAG_START_PAGE) && (hdr.page_flags != CV_DELETED_START)) {
+    return CvHeadOther;
+  }
+
+  FileHeader fh;
+  prv_cv_read(offs + FILEHEADER_OFFSET, &fh, sizeof(fh));
+  if (compute_file_header_crc(&fh) != fh.hdr_crc) {
+    return CvHeadOther;
+  }
+  const uint32_t len = prv_cv_content_len(&fh);
+  if (len <= CV_NEW_PAYLOAD) {
+    return CvHeadSmall;
+  }
+  return prv_cv_page_chain(first, DIVIDE_CEIL(len, CV_NEW_PAYLOAD)) ? CvHeadPages : CvHeadSector;
+}
+
+//! Sets sector_new for the sectors that keep their small pages
+static void prv_cv_analyze(CvState *st) {
+  uint8_t head[CV_SECTORS];
+  memset(st->sector_inner, 0, sizeof(st->sector_inner));
+  memset(st->sector_linked, 0, sizeof(st->sector_linked));
+
+  for (uint16_t page = 0; page < CV_PAGES; page++) {
+    PageHeader hdr;
+    uint16_t next;
+    if (prv_cv_is_sector_start(page)) {
+      continue;
+    }
+    prv_cv_read(prv_page_to_flash_offset(page), &hdr, sizeof(hdr));
+    if (!prv_is_page_header(&hdr)) {
+      continue;
+    }
+    st->sector_inner[prv_cv_sector_of(page)] = true;
+    if (!page_is_erased(hdr.page_flags) && prv_cv_next_page(page, CV_PAGES, &next) &&
+        prv_cv_is_sector_start(next)) {
+      st->sector_linked[prv_cv_sector_of(next)] = true;
+    }
+  }
+
+  for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
+    head[sector] = prv_cv_head(sector);
+  }
+
+  for (bool changed = true; changed;) {
+    changed = false;
+    for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
+      uint16_t next;
+      const bool source = (head[sector] == CvHeadPages) ||
+                          ((head[sector] == CvHeadCont) && st->sector_linked[sector]);
+      if (source && prv_cv_next_page(sector * PFS_PAGES_PER_ERASE_SECTOR, CV_PAGES, &next) &&
+          prv_cv_is_sector_start(next) && !st->sector_linked[prv_cv_sector_of(next)]) {
+        st->sector_linked[prv_cv_sector_of(next)] = true;
+        changed = true;
+      }
+    }
+  }
+
+  for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
+    switch (head[sector]) {
+      case CvHeadEmpty:
+      case CvHeadSmall:
+        st->sector_new[sector] = st->sector_inner[sector];
+        break;
+      case CvHeadPages:
+        st->sector_new[sector] = true;
+        break;
+      case CvHeadCont:
+        st->sector_new[sector] = st->sector_linked[sector];
+        break;
+      default:
+        st->sector_new[sector] = false;
+        break;
+    }
+  }
+
+  for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
+    PageHeader hdr;
+    FileHeader fh;
+    if ((head[sector] != CvHeadSector) ||
+        !prv_cv_read_file(sector * SECTOR_SIZE_BYTES, &hdr, &fh)) {
+      continue;
+    }
+    uint16_t cur = sector;
+    for (uint32_t count = DIVIDE_CEIL(prv_cv_content_len(&fh), CV_OLD_PAYLOAD); count > 0;
+         count--) {
+      st->sector_new[cur] = false;
+      if (!prv_cv_next_page(cur * PFS_PAGES_PER_ERASE_SECTOR, CV_SECTORS, &cur)) {
+        break;
+      }
     }
   }
 }
@@ -2429,23 +2774,17 @@ static void prv_cv_scan(CvState *st, uint16_t marker_page) {
   st->free_pages = 0;
   st->junk_pages = 0;
   st->blank_pages = 0;
+  st->stale_files = 0;
   st->erase_failed = false;
 
   if (st->marker_page != INVALID_PAGE) {
-    for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
-      PageHeader hdr;
-      const uint16_t first = sector * PFS_PAGES_PER_ERASE_SECTOR;
-      prv_cv_read(prv_page_to_flash_offset(first + CV_GUARD_PAGE), &hdr, sizeof(hdr));
-      st->sector_new[sector] = prv_is_page_header(&hdr);
-      if (first == st->marker_page) {
-        st->blank_pages += st->sector_new[sector] ? 0 : 1;
-        st->sector_new[sector] = true;
-      }
-    }
+    prv_cv_read_bitmap(st);
+  } else {
+    prv_cv_analyze(st);
   }
 
   for (uint16_t page = 0; page < CV_PAGES; page++) {
-    if (st->sector_new[prv_cv_sector_of(page)] && !prv_cv_is_guard(page)) {
+    if (st->sector_new[prv_cv_sector_of(page)]) {
       st->page[page] = prv_cv_classify(page);
     }
   }
@@ -2471,7 +2810,9 @@ static void prv_cv_scan(CvState *st, uint16_t marker_page) {
     }
   }
 
+  prv_cv_find_stale_markers(st);
   prv_cv_find_old_files(st);
+  prv_cv_resolve_names(st);
 }
 
 static void prv_cv_write_erased_header(uint16_t page, uint32_t erase_count) {
@@ -2483,19 +2824,13 @@ static void prv_cv_write_erased_header(uint16_t page, uint32_t erase_count) {
   prv_cv_write(prv_page_to_flash_offset(page), &hdr, offsetof(PageHeader, rsvd1));
 }
 
-//! Guard page last; without a state, every page is blank
+//! Without a state, every page is blank
 static void prv_cv_format_sector(const CvState *st, uint16_t sector, uint32_t erase_count) {
   const uint16_t first = sector * PFS_PAGES_PER_ERASE_SECTOR;
   for (uint16_t page = first; page < first + PFS_PAGES_PER_ERASE_SECTOR; page++) {
-    if (!prv_cv_is_guard(page) && ((st == nullptr) || (st->page[page] == CvPageBlank))) {
+    if ((st == nullptr) || (st->page[page] == CvPageBlank)) {
       prv_cv_write_erased_header(page, erase_count);
     }
-  }
-
-  PageHeader hdr;
-  prv_cv_read(prv_page_to_flash_offset(first + CV_GUARD_PAGE), &hdr, sizeof(hdr));
-  if (!prv_is_page_header(&hdr)) {
-    prv_cv_write_erased_header(first + CV_GUARD_PAGE, erase_count);
   }
 }
 
@@ -2533,6 +2868,9 @@ static void prv_cv_reclaim(CvState *st, uint16_t sector) {
   PBL_LOG_DBG("Erasing sector %u", (unsigned)sector);
   uint32_t erase_count;
   if (prv_cv_erase_sector(st, sector, &erase_count)) {
+    if (!st->sector_new[sector]) {
+      prv_cv_mark_new(st, sector);
+    }
     prv_cv_format_sector(nullptr, sector, erase_count);
   }
 }
@@ -2548,9 +2886,10 @@ static void prv_cv_delete_old(const CvOldFile *f) {
 static void prv_cv_unlink(CvState *st, uint16_t page) {
   const uint32_t offs = prv_page_to_flash_offset(page);
   const uint16_t delete_done = DELETE_STATE_DONE;
-  for (uint16_t cur = page; (st->page[cur] == CvPageStart) || (st->page[cur] == CvPageCont);) {
+  for (uint16_t cur = page; (st->page[cur] == CvPageStart) || (st->page[cur] == CvPageCont) ||
+                            (st->page[cur] == CvPageStale);) {
     prv_cv_write_flags(prv_page_to_flash_offset(cur),
-                       (st->page[cur] == CvPageStart) ? CV_DELETED_START : CV_DELETED_CONT);
+                       (cur == page) ? CV_DELETED_START : CV_DELETED_CONT);
     st->page[cur] = CvPageOther;
     if (!prv_cv_next_page(cur, CV_PAGES, &cur)) {
       break;
@@ -2663,27 +3002,56 @@ static void prv_cv_copy(CvState *st, const CvOldFile *f) {
   prv_cv_delete_old(f);
 }
 
-//! Writes the marker
-static void prv_cv_begin(CvState *st) {
-  uint16_t largest = INVALID_PAGE;
-  bool dropped = false;
-  for (uint16_t i = 0; i < st->num_old; i++) {
-    if (st->old[i].action == CvOldDrop) {
-      prv_cv_delete_old(&st->old[i]);
-      dropped = true;
-    } else if ((largest == INVALID_PAGE) || (st->old[i].new_pages >= st->old[largest].new_pages)) {
-      largest = i;
+static void prv_cv_drop_largest_new(CvState *st);
+
+static bool prv_cv_unlink_stale(CvState *st) {
+  if (st->stale_files == 0) {
+    return false;
+  }
+  for (uint16_t page = 0; page < CV_PAGES; page++) {
+    if (st->page[page] == CvPageStale) {
+      PBL_LOG_WRN("Dropping an older copy at page %u", (unsigned)page);
+      prv_cv_unlink(st, page);
     }
   }
-  if (dropped) {
-    return;
-  }
+  return true;
+}
 
+static bool prv_cv_delete_settled(CvState *st) {
+  bool deleted = false;
+  for (uint16_t i = 0; i < st->num_old; i++) {
+    if (st->old[i].action != CvOldConvert) {
+      prv_cv_delete_old(&st->old[i]);
+      deleted = true;
+    }
+  }
+  return deleted;
+}
+
+static bool prv_cv_marker_fits(const CvState *st, uint16_t sector) {
+  return st->sector_new[sector] ? !st->sector_live[sector] : !st->sector_owned[sector];
+}
+
+//! Writes the marker
+static void prv_cv_begin(CvState *st) {
   uint16_t sector = 0;
-  while ((sector < CV_SECTORS) && st->sector_owned[sector]) {
+  while ((sector < CV_SECTORS) && !prv_cv_marker_fits(st, sector)) {
     sector++;
   }
   if (sector == CV_SECTORS) {
+    if (prv_cv_delete_settled(st)) {
+      return;
+    }
+    uint16_t largest = INVALID_PAGE;
+    for (uint16_t i = 0; i < st->num_old; i++) {
+      if ((largest == INVALID_PAGE) || (st->old[i].new_pages >= st->old[largest].new_pages)) {
+        largest = i;
+      }
+    }
+    if (largest == INVALID_PAGE) {
+      prv_cv_drop_largest_new(st);
+      return;
+    }
     PBL_LOG_WRN("No free sector, dropping the file at sector %u",
                 (unsigned)st->old[largest].sector);
     prv_cv_delete_old(&st->old[largest]);
@@ -2698,8 +3066,14 @@ static void prv_cv_begin(CvState *st) {
   const uint32_t offs = prv_page_to_flash_offset(page);
   const size_t namelen = strlen(CV_MARKER_NAME);
   const uint32_t magic = CV_MARKER_MAGIC;
-  uint8_t marker[FILE_NAME_OFFSET + sizeof(CV_MARKER_NAME) - 1 + sizeof(magic)];
+  uint8_t marker[FILE_NAME_OFFSET + sizeof(CV_MARKER_NAME) - 1 + CV_MARKER_SIZE];
   memset(marker, 0xff, sizeof(marker));
+  uint8_t *bits = &marker[FILE_NAME_OFFSET + namelen + sizeof(magic)];
+  for (uint16_t s = 0; s < CV_SECTORS; s++) {
+    if (st->sector_new[s] || (s == sector)) {
+      bits[s / 8] &= ~(1 << (s % 8));
+    }
+  }
 
   PageHeader hdr;
   memset(&hdr, 0xff, sizeof(hdr));
@@ -2711,7 +3085,7 @@ static void prv_cv_begin(CvState *st) {
 
   FileHeader fh;
   memset(&fh, 0xff, sizeof(fh));
-  fh.file_size = sizeof(magic);
+  fh.file_size = CV_MARKER_SIZE;
   fh.file_type = FILE_TYPE_STATIC;
   fh.file_namelen = namelen;
   fh.hdr_crc = compute_file_header_crc(&fh);
@@ -2737,7 +3111,7 @@ static bool prv_cv_reclaimable(const CvState *st, uint16_t sector) {
   }
   const uint16_t first = sector * PFS_PAGES_PER_ERASE_SECTOR;
   for (uint16_t page = first; page < first + PFS_PAGES_PER_ERASE_SECTOR; page++) {
-    if (!prv_cv_is_guard(page) && (st->page[page] != CvPageFree)) {
+    if (st->page[page] != CvPageFree) {
       return true;
     }
   }
@@ -2768,6 +3142,9 @@ static void prv_cv_drop_largest_new(CvState *st) {
       largest_size = size;
     }
   }
+  if (largest == INVALID_PAGE) {
+    return;
+  }
   PBL_LOG_WRN("No free sector left, dropping the file at page %u", (unsigned)largest);
   prv_cv_unlink(st, largest);
 }
@@ -2789,14 +3166,7 @@ static bool prv_cv_step(CvState *st) {
     return true;
   }
 
-  bool deleted = false;
-  for (uint16_t i = 0; i < st->num_old; i++) {
-    if (st->old[i].action != CvOldConvert) {
-      prv_cv_delete_old(&st->old[i]);
-      deleted = true;
-    }
-  }
-  if (deleted) {
+  if (prv_cv_unlink_stale(st) || prv_cv_delete_settled(st)) {
     return true;
   }
 
@@ -2851,6 +3221,15 @@ static bool prv_cv_step(CvState *st) {
     prv_cv_write(prv_page_to_flash_offset(last) + offsetof(PageHeader, last_written), &tag,
                  sizeof(tag));
   }
+  for (uint16_t page = 0; page < CV_PAGES; page++) {
+    const uint32_t offs = prv_page_to_flash_offset(page) + offsetof(PageHeader, last_written);
+    uint8_t tag;
+    prv_cv_read(offs, &tag, sizeof(tag));
+    if ((tag == LAST_WRITTEN_TAG) && (page != last)) {
+      const uint8_t unmark = LAST_WRITTEN_UNMARK;
+      prv_cv_write(offs, &unmark, sizeof(unmark));
+    }
+  }
 
   prv_cv_unlink(st, st->marker_page);
   return false;
@@ -2878,7 +3257,8 @@ static bool prv_convert_sector_pages(void) {
 
   for (uint32_t steps = 0;; steps++) {
     const uint16_t marker_page = prv_cv_find_marker();
-    if ((marker_page == INVALID_PAGE) && !prv_written_with_sector_pages()) {
+    if ((marker_page == INVALID_PAGE) && !prv_written_with_sector_pages() &&
+        !prv_cv_has_sector_page_file()) {
       break;
     }
     if (steps == prv_cv_max_steps()) {
@@ -3161,6 +3541,11 @@ void test_override_last_written_page(uint16_t start_page) {
 #ifdef CONFIG_FS_PFS_CONVERT_SECTOR_PAGES
 void test_override_convert_max_steps(uint32_t max_steps) {
   s_test_convert_max_steps = max_steps;
+}
+
+bool test_convert_needed(void) {
+  return (prv_cv_find_marker() != INVALID_PAGE) || prv_written_with_sector_pages() ||
+         prv_cv_has_sector_page_file();
 }
 #endif
 #endif
