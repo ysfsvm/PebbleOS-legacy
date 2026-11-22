@@ -35,6 +35,14 @@ config FS_PFS_FORMAT_SECTOR_PAGES
       erase sector starts: it was written by a firmware whose page was
       the whole erase sector, and smaller pages cannot read its files.
 
+config FS_PFS_CONVERT_SECTOR_PAGES
+    bool "Convert a PFS written with one page per erase sector"
+    depends on FS_PFS_FORMAT_SECTOR_PAGES
+    help
+      Instead of formatting such a filesystem, convert it at boot to the
+      smaller pages, keeping its files. A conversion cut by a reset
+      resumes at the next boot.
+
 config FS_PFS_SHELL_LITTER
     bool "PFS litter shell command"
     depends on FS_PFS && SHELL
