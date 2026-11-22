@@ -9,7 +9,6 @@
 #include <pbl/board.h>
 #include <pbl/board/partitions.h>
 #include <pbl/drivers/audio/stm32.h>
-#include <pbl/drivers/backlight/pwm.h>
 #include <pbl/drivers/clk/stm32f4.h>
 #include <pbl/drivers/dma/stm32f4.h>
 #include <pbl/drivers/pmic/max14690.h>
@@ -111,12 +110,6 @@ PBL_MAX14690_DEFINE(s_max14690, &dt_i2c1, &I2C_SLAVE_MAX14690,
                     .int_gpio = PBL_GPIO(STM32_GPIOG, 7, 0), .mon_adc_channel = ADC_Channel_1,
                     .mon_adc_pin = PBL_GPIO(STM32_GPIOA, 1, 0));
 const struct pbl_max14690 *const MAX14690 = &s_max14690;
-
-// Backlight: TIM12 CH1
-///////////////////////////////////////////////////////////////////////////////
-
-PBL_BACKLIGHT_PWM_DEFINE(snowy_backlight, "backlight", PBL_GPIO(nullptr, 0, 0),
-                         PBL_PWM(&dt_pwm12, 0, PBL_PWM_HZ(256), 0));
 
 // Vibe: H-bridge driven by TIM10 CH1, enabled by PF4
 ///////////////////////////////////////////////////////////////////////////////
