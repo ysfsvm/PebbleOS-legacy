@@ -13,11 +13,7 @@
  * @ingroup drivers_pinctrl
  * @brief @ref drivers_pinctrl controller of the STM32F4 GPIO ports.
  *
- * A pin is a pinmux cell of the upstream binding, STM32_PINMUX(port, line, mode) from
- * dt-bindings/pinctrl/stm32-pinfunc.h, or'ed with its options. A GPIO pin is the GPIO driver's
- * and fails with @c -EINVAL, a reserved (RSVD) pin is left as it is. Every option is written when
- * the pin is configured, so a pin without any gets no pull, push-pull output and the lowest speed;
- * Linux leaves the absent ones as they were instead:
+ * A pin is an STM32_PINMUX() cell or'ed with its options:
  *
  * @code{.c}
  * #include <dt-bindings/pinctrl/stm32-pinfunc.h>
@@ -47,6 +43,10 @@
 #define PBL_PINCTRL_STM32_OPEN_DRAIN PBL_BIT(18)
 /** Output speed, the OSPEEDR value: 0 (low) to 3 (very high). */
 #define PBL_PINCTRL_STM32_SLEW(rate) PBL_FIELD_PREP(PBL_PINCTRL_STM32_SLEW_MSK, rate)
+/** A GPIO pin driven low, as output-low. */
+#define PBL_PINCTRL_STM32_OUTPUT_LOW PBL_BIT(22)
+/** A GPIO pin driven high, as output-high. */
+#define PBL_PINCTRL_STM32_OUTPUT_HIGH PBL_BIT(23)
 
 /** The pin controller. */
 #define STM32_PINCTRL (&pbl_pinctrl_stm32)

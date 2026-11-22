@@ -16,10 +16,13 @@
 #define MODE_ANALOG 17U
 #define MODE_RSVD   18U
 
+#define OUTPUT_MSK (PBL_PINCTRL_STM32_OUTPUT_LOW | PBL_PINCTRL_STM32_OUTPUT_HIGH)
+
 // Valid cell bits
-#define CELL_MSK                                                                        \
-  (PBL_PINCTRL_STM32_MODE_MSK | PBL_PINCTRL_STM32_PIN_MSK | PBL_PINCTRL_STM32_PULL_UP | \
-   PBL_PINCTRL_STM32_PULL_DOWN | PBL_PINCTRL_STM32_OPEN_DRAIN | PBL_PINCTRL_STM32_SLEW_MSK)
+#define CELL_MSK                                                                             \
+  (PBL_PINCTRL_STM32_MODE_MSK | PBL_PINCTRL_STM32_PIN_MSK | PBL_PINCTRL_STM32_PULL_UP |      \
+   PBL_PINCTRL_STM32_PULL_DOWN | PBL_PINCTRL_STM32_OPEN_DRAIN | PBL_PINCTRL_STM32_SLEW_MSK | \
+   OUTPUT_MSK)
 
 // Ports A to K
 #define NUM_PADS (11U * 16U)
@@ -43,8 +46,16 @@ static int prv_configure_pin(uint32_t pin) {
     return 0;
   }
 
-  // A GPIO pin is the GPIO driver's to set up
-  if (mode < MODE_AF0 || mode > MODE_ANALOG) {
+  if (mode > MODE_ANALOG) {
+    return -EINVAL;
+  }
+
+  // GPIO only with an output level
+  if (mode < MODE_AF0) {
+    if ((pin & OUTPUT_MSK) == 0U || (pin & OUTPUT_MSK) == OUTPUT_MSK) {
+      return -EINVAL;
+    }
+  } else if ((pin & OUTPUT_MSK) != 0U) {
     return -EINVAL;
   }
 
@@ -68,6 +79,12 @@ static int prv_configure_pin(uint32_t pin) {
   }
   if ((pin & PBL_PINCTRL_STM32_OPEN_DRAIN) != 0U) {
     flags |= PBL_GPIO_OPEN_DRAIN;
+  }
+
+  if (mode < MODE_AF0) {
+    pbl_gpio_stm32_output(&gpio, (pin & PBL_PINCTRL_STM32_OUTPUT_HIGH) != 0U, flags,
+                          PBL_FIELD_GET(PBL_PINCTRL_STM32_SLEW_MSK, pin));
+    return 0;
   }
 
   pbl_gpio_stm32_af(&gpio, mode - MODE_AF0, flags, PBL_FIELD_GET(PBL_PINCTRL_STM32_SLEW_MSK, pin));
