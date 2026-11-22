@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
+# SPDX-License-Identifier: Apache-2.0
+
+compatible: st,stm32f42xx-rcc
+config: RESET_STM32F4
+class: reset
+symbol: "{sym}_reset"
+define: PBL_RESET_STM32F4_DEFINE
+header: pbl/drivers/reset/stm32f4.h
+args:
+  - name: true
+  - reg: 0

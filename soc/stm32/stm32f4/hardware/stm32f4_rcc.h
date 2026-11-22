@@ -10,11 +10,13 @@
 #define STM32F4_RCC_CR_OFFSET      0x00
 #define STM32F4_RCC_PLLCFGR_OFFSET 0x04
 #define STM32F4_RCC_CFGR_OFFSET    0x08
-/* AHB1ENR, AHB2ENR, AHB3ENR, a gap, APB1ENR and APB2ENR, one word each */
-#define STM32F4_RCC_ENR_OFFSET(n)  (0x30 + 4 * (n))
-#define STM32F4_RCC_BDCR_OFFSET    0x70
-#define STM32F4_RCC_CSR_OFFSET     0x74
-#define STM32F4_RCC_DCKCFGR_OFFSET 0x8c
+/* AHB1, AHB2, AHB3, a gap, APB1 and APB2, one word each */
+#define STM32F4_RCC_RSTR_OFFSET(n)       (0x10 + 4 * (n))
+#define STM32F4_RCC_RSTR_RESERVED_OFFSET 0x1c
+#define STM32F4_RCC_ENR_OFFSET(n)        (0x30 + 4 * (n))
+#define STM32F4_RCC_BDCR_OFFSET          0x70
+#define STM32F4_RCC_CSR_OFFSET           0x74
+#define STM32F4_RCC_DCKCFGR_OFFSET       0x8c
 
 /* Register bit definitions */
 
