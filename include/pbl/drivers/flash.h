@@ -17,7 +17,6 @@
 #define PAGE_SIZE_BYTES (0x100)
 
 #ifdef CONFIG_FLASH_S29VS
-// The stock filesystem on the Pebble Time's S29VS has 128 KiB pages.
 #define SECTOR_SIZE_BYTES (0x20000)
 #define SECTOR_ADDR_MASK  (~(SECTOR_SIZE_BYTES - 1))
 

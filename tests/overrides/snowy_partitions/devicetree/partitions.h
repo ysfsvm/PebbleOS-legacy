@@ -1,0 +1,14 @@
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#pragma once
+
+#include <pbl/util/units.h>
+
+#define PART_SHARED_PRF_STORAGE_OFFSET 0x0020000
+#define PART_SHARED_PRF_STORAGE_SIZE   PBL_KIB(128)
+#define PART_SHARED_PRF_STORAGE        PBL_FLASH_PARTITION(PART_SHARED_PRF_STORAGE)
+
+#define PART_FILESYSTEM_OFFSET 0x0400000
+#define PART_FILESYSTEM_SIZE   PBL_MIB(12)
+#define PART_FILESYSTEM        PBL_FLASH_PARTITION(PART_FILESYSTEM)
