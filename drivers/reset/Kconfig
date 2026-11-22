@@ -15,4 +15,10 @@ config RESET_SF32LB
     help
       Reset controller of the SiFli SF32LB52 HPSYS RCC.
 
+config RESET_STM32F4
+    bool "ST STM32F4 RCC"
+    default DT_HAS_ST_STM32F42XX_RCC_ENABLED
+    help
+      Reset controller of the STM32F4 RCC.
+
 endif # RESET

@@ -225,4 +225,4 @@ static const struct pbl_clk_controller_ops s_ops = {
     .ctrl = PBL_CLK_CONTROLLER_INIT(sym, _name, nullptr, nullptr, &s_ops), .base = (_base), \
   }
 
-#include PBL_DT_INSTANCES(st_stm32f42xx_rcc)
+#include PBL_DT_INSTANCES(st_stm32f42xx_rcc_clk)
