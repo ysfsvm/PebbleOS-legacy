@@ -3,6 +3,7 @@
 
 #include "fake_spi_flash.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,9 @@ typedef struct FakeFlashState {
   uint32_t ops_left_till_failure;
   FakeFlashCut cut;
   jmp_buf *jmp_on_op_failure;
+  bool erase_fails;
+  bool erase_fails_silently;
+  uint32_t failing_sector;
 } FakeFlashState;
 
 static FakeFlashState s_state = {};
@@ -126,6 +130,15 @@ void fake_spi_flash_force_op_failure(uint32_t after_n_ops, FakeFlashCut cut, jmp
   s_state.jmp_on_op_failure = retire_to;
 }
 
+void fake_spi_flash_fail_erase(bool fail, uint32_t addr) {
+  s_state.erase_fails = fail;
+  s_state.failing_sector = addr / SECTOR_SIZE_BYTES;
+}
+
+void fake_spi_flash_fail_erase_silently(bool silent) {
+  s_state.erase_fails_silently = silent;
+}
+
 uint32_t fake_flash_op_count(void) {
   return s_state.op_count;
 }
@@ -198,30 +211,37 @@ static uint32_t prv_sector_index(uint32_t addr) {
   return (addr / SECTOR_SIZE_BYTES) - (s_state.offset / SECTOR_SIZE_BYTES);
 }
 
-static void prv_erase_block(uint32_t addr, uint32_t size) {
+static int prv_erase_block(uint32_t addr, uint32_t size) {
   prv_check_range(addr, size);
   prv_op(addr, size, nullptr);
   ++s_state.erase_count;
   ++s_state.sector_erase_counts[prv_sector_index(addr)];
+  if (s_state.erase_fails && ((addr / SECTOR_SIZE_BYTES) == s_state.failing_sector)) {
+    return s_state.erase_fails_silently ? 0 : -EIO;
+  }
   memset(&s_state.storage[addr - s_state.offset], 0xff, size);
+  return 0;
 }
 
 int pbl_flash_erase(const struct pbl_flash *flash, uint32_t addr, size_t len) {
   cl_assert((addr % SUBSECTOR_SIZE_BYTES) == 0);
   len = ((len + SUBSECTOR_SIZE_BYTES - 1) / SUBSECTOR_SIZE_BYTES) * SUBSECTOR_SIZE_BYTES;
 
+  int ret = 0;
   while (len > 0) {
     uint32_t unit = SUBSECTOR_SIZE_BYTES;
 
     if ((addr % SECTOR_SIZE_BYTES) == 0 && len >= SECTOR_SIZE_BYTES) {
       unit = SECTOR_SIZE_BYTES;
     }
-    prv_erase_block(addr, unit);
+    if (prv_erase_block(addr, unit) != 0) {
+      ret = -EIO;
+    }
     addr += unit;
     len -= unit;
   }
 
-  return 0;
+  return ret;
 }
 
 int pbl_flash_erase_async(const struct pbl_flash *flash, uint32_t addr, size_t len,
