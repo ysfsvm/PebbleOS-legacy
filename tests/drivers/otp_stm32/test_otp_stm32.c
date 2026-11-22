@@ -1,9 +1,6 @@
 /* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#pragma clang diagnostic ignored "-Wint-to-pointer-cast"
-#include "../../../drivers/otp/otp_stm32.c"
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>

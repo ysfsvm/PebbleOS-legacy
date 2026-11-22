@@ -3,6 +3,7 @@
 
 pbl_clar_test(test_otp_stm32
   SOURCES
+    drivers/otp/otp_stm32.c
     pebble/mfg/mfg_serials.c
   INCLUDES
     soc/stm32/stm32f4

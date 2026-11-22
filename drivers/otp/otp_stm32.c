@@ -1,4 +1,5 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
+/* SPDX-FileCopyrightText: 2026 retake */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 //! STM32F4 OTP area. Read-only: the slots were written at the factory and
@@ -6,25 +7,24 @@
 
 #include <pbl/drivers/otp.h>
 #include <pbl/kernel/assert.h>
-#include <pbl/kernel/fatal.h>
+#include <pbl/kernel/mmio.h>
 
-// RM0402, section 3.5 (OTP area)
-#define OTP_SLOTS_BASE_ADDR (0x1FFF7800)
-#define OTP_LOCKS_BASE_ADDR (0x1FFF7A00)
-#define OTP_SLOT_SIZE_BYTES (32)
+#include <hardware/stm32f4_otp.h>
+
+static_assert(NUM_OTP_SLOTS <= STM32F4_OTP_NUM_BLOCKS, "more slots than OTP blocks");
 
 char *otp_get_slot(const uint8_t index) {
   PBL_ASSERTN(index < NUM_OTP_SLOTS);
-  return (char *)(OTP_SLOTS_BASE_ADDR + (OTP_SLOT_SIZE_BYTES * index));
+  return (char *)(uintptr_t)(STM32F4_OTP_BASE + (STM32F4_OTP_BLOCK_SIZE * index));
 }
 
 uint8_t *otp_get_lock(const uint8_t index) {
   PBL_ASSERTN(index < NUM_OTP_SLOTS);
-  return (uint8_t *)(OTP_LOCKS_BASE_ADDR + index);
+  return (uint8_t *)(uintptr_t)(STM32F4_OTP_LOCK_BASE + index);
 }
 
 bool otp_is_locked(const uint8_t index) {
-  return (*otp_get_lock(index) == 0);
+  return pbl_readb((uintptr_t)otp_get_lock(index)) == STM32F4_OTP_LOCKED;
 }
 
 OtpWriteResult otp_write_slot(const uint8_t index, const char *value) {
