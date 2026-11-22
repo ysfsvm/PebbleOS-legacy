@@ -88,6 +88,7 @@ static uint8_t *s_image;
 static uint8_t *s_stream;
 
 extern void pfs_reset_all_state(void);
+extern void test_override_convert_max_steps(uint32_t max_steps);
 
 static uint8_t prv_byte(uint8_t seed, uint32_t i) {
   if ((((i / 3000) + seed) % 4) == 0) {
@@ -316,6 +317,22 @@ static void prv_assert_usable(void) {
   prv_assert_files();
 }
 
+static void prv_assert_unavailable(void) {
+  const uint32_t ops = fake_flash_op_count();
+  size_t size;
+  for (int i = 0; i < s_num_files; i++) {
+    cl_assert(pfs_open(s_files[i].name, OP_FLAG_READ, FILE_TYPE_STATIC, 0) < 0);
+    cl_assert(pfs_stat(s_files[i].name, &size) < 0);
+    cl_assert(pfs_remove(s_files[i].name) < 0);
+  }
+  cl_assert(pfs_open("created", OP_FLAG_WRITE, FILE_TYPE_STATIC, 100) < 0);
+  cl_assert(pfs_create_file_list(nullptr) == nullptr);
+  cl_assert_equal_i(pfs_get_size(), 0);
+  cl_assert_equal_i(get_available_pfs_space(), 0);
+  pfs_format(true);
+  cl_assert_equal_i(fake_flash_op_count(), ops);
+}
+
 static void prv_mixed_filesystem(void) {
   const uint16_t first[] = {0};
   prv_old_file_in(first, "zero", 700, 14, OLD_DELETED);
@@ -344,6 +361,7 @@ void test_pfs_convert__initialize(void) {
 }
 
 void test_pfs_convert__cleanup(void) {
+  test_override_convert_max_steps(0);
   fake_spi_flash_force_op_failure(0, FakeFlashCutBefore, nullptr);
   fake_spi_flash_cleanup();
   free(s_stream);
@@ -438,6 +456,41 @@ void test_pfs_convert__unreadable_files_only(void) {
 
   prv_reboot();
 
+  prv_assert_files();
+  prv_assert_new_layout();
+  prv_assert_usable();
+}
+
+void test_pfs_convert__step_limit_leaves_the_files_to_a_later_boot(void) {
+  prv_mixed_filesystem();
+  test_override_convert_max_steps(3);
+
+  prv_reboot();
+
+  prv_assert_unavailable();
+  test_override_convert_max_steps(0);
+  prv_reboot();
+  prv_assert_files();
+  prv_assert_new_layout();
+  prv_assert_usable();
+}
+
+void test_pfs_convert__sector_that_never_erases(void) {
+  const uint16_t gone0[] = {0};
+  const uint16_t a[] = {1};
+  const uint16_t gone2[] = {2};
+  const uint16_t big[] = {3, 4};
+  prv_old_file_in(gone0, "gone0", prv_full_size("gone0"), 1, OLD_DELETED);
+  prv_old_file_in(a, "a", 100, 2, 0);
+  prv_old_file_in(gone2, "gone2", prv_full_size("gone2"), 3, OLD_DELETED);
+  prv_old_file_in(big, "big", OLD_PAYLOAD + 50000, 4, 0);
+  fake_spi_flash_fail_erase(true, PART_FILESYSTEM_OFFSET + 2 * SECTOR_SIZE_BYTES);
+
+  prv_reboot();
+
+  prv_assert_unavailable();
+  fake_spi_flash_fail_erase(false, 0);
+  prv_reboot();
   prv_assert_files();
   prv_assert_new_layout();
   prv_assert_usable();
