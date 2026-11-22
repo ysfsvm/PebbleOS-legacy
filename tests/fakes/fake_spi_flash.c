@@ -26,6 +26,10 @@ typedef struct FakeFlashState {
   uint32_t write_count;
   uint32_t erase_count;
   uint32_t *sector_erase_counts;
+  uint32_t op_count;
+  uint32_t ops_left_till_failure;
+  FakeFlashCut cut;
+  jmp_buf *jmp_on_op_failure;
 } FakeFlashState;
 
 static FakeFlashState s_state = {};
@@ -116,6 +120,48 @@ static void prv_check_range(uint32_t addr, size_t len) {
   cl_assert(addr + len <= s_state.offset + s_state.length);
 }
 
+void fake_spi_flash_force_op_failure(uint32_t after_n_ops, FakeFlashCut cut, jmp_buf *retire_to) {
+  s_state.ops_left_till_failure = after_n_ops;
+  s_state.cut = cut;
+  s_state.jmp_on_op_failure = retire_to;
+}
+
+uint32_t fake_flash_op_count(void) {
+  return s_state.op_count;
+}
+
+void fake_spi_flash_save(uint8_t *buf, uint32_t addr, uint32_t len) {
+  prv_check_range(addr, len);
+  memcpy(buf, s_state.storage + (addr - s_state.offset), len);
+}
+
+void fake_spi_flash_restore(const uint8_t *buf, uint32_t addr, uint32_t len) {
+  prv_check_range(addr, len);
+  memcpy(s_state.storage + (addr - s_state.offset), buf, len);
+}
+
+static void prv_op(uint32_t addr, size_t len, const uint8_t *src) {
+  if (s_state.jmp_on_op_failure != nullptr) {
+    if (s_state.ops_left_till_failure == 0) {
+      uint8_t *dst = s_state.storage + (addr - s_state.offset);
+      uint32_t rnd = s_state.op_count;
+      for (size_t i = 0; i < len; i++) {
+        uint8_t undone = 0xff;
+        if (s_state.cut == FakeFlashCutHalf) {
+          undone = (i < (len / 2)) ? 0x00 : 0xff;
+        } else if (s_state.cut == FakeFlashCutBits) {
+          rnd = (rnd * 1103515245U) + 12345U;
+          undone = (uint8_t)(rnd >> 16);
+        }
+        dst[i] = (src != nullptr) ? (dst[i] & (src[i] | undone)) : (dst[i] | (uint8_t)~undone);
+      }
+      longjmp(*s_state.jmp_on_op_failure, 1);
+    }
+    s_state.ops_left_till_failure--;
+  }
+  ++s_state.op_count;
+}
+
 int pbl_flash_read(const struct pbl_flash *flash, uint32_t addr, void *buf, size_t len) {
   prv_check_range(addr, len);
 
@@ -129,6 +175,7 @@ int pbl_flash_write(const struct pbl_flash *flash, uint32_t addr, const void *bu
   const uint8_t *src = buf;
 
   prv_check_range(addr, len);
+  prv_op(addr, len, src);
 
   ++s_state.write_count;
 
@@ -152,8 +199,9 @@ static uint32_t prv_sector_index(uint32_t addr) {
 }
 
 static void prv_erase_block(uint32_t addr, uint32_t size) {
-  ++s_state.erase_count;
   prv_check_range(addr, size);
+  prv_op(addr, size, nullptr);
+  ++s_state.erase_count;
   ++s_state.sector_erase_counts[prv_sector_index(addr)];
   memset(&s_state.storage[addr - s_state.offset], 0xff, size);
 }
