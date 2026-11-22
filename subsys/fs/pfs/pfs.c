@@ -77,8 +77,15 @@ static_assert(PFS_PAGE_SIZE == 0x2000, "S29VS pages are 8 KiB, as in the stock f
 
 #define SET_PAGE_FLAGS(page_flags, type) ((page_flags) &= ~(type))
 
-#define PFS_MAGIC       0x50
-#define PFS_VERS        0x01
+#define PFS_MAGIC         0x50
+#define PFS_FIRST_VERSION ((PFS_MAGIC << 8) | 0x01)
+#ifdef CONFIG_FS_PFS_VERSION_2
+#define PFS_VERS             0x02
+#define PFS_KNOWN_VERSION(v) (((v) == PFS_CUR_VERSION) || ((v) == PFS_FIRST_VERSION))
+#else
+#define PFS_VERS             0x01
+#define PFS_KNOWN_VERSION(v) ((v) == PFS_CUR_VERSION)
+#endif
 #define PFS_CUR_VERSION ((PFS_MAGIC << 8) | PFS_VERS)
 
 #define LAST_WRITTEN_TAG    0xfe
@@ -445,6 +452,15 @@ static status_t write_pg_header(PageHeader *hdr, uint16_t pg) {
                  prv_page_to_flash_offset(pg) + offsetof(PageHeader, erase_count));
   prv_flash_read((uint8_t *)&hdr->last_written, sizeof(hdr->last_written),
                  prv_page_to_flash_offset(pg) + offsetof(PageHeader, last_written));
+#ifdef CONFIG_FS_PFS_VERSION_2
+  uint16_t version;
+  prv_flash_read((uint8_t *)&version, sizeof(version),
+                 prv_page_to_flash_offset(pg) + offsetof(PageHeader, version));
+  // Programmed over an erased header of the first version
+  if (version == PFS_FIRST_VERSION) {
+    hdr->version = version;
+  }
+#endif
 
   hdr->hdr_crc = compute_pg_header_crc(hdr);
   prv_flash_write((uint8_t *)hdr, sizeof(*hdr), prv_page_to_flash_offset(pg));
@@ -2043,7 +2059,7 @@ static_assert(PFS_PAGES_PER_ERASE_SECTOR > 1, "Pages must be smaller than the er
 static bool prv_is_page_header(const PageHeader *hdr) {
   static const uint8_t erased_rsvd0[sizeof(hdr->rsvd0)] = {0xff, 0xff, 0xff, 0xff};
 
-  if (hdr->version != PFS_CUR_VERSION) {
+  if (!PFS_KNOWN_VERSION(hdr->version)) {
     return false;
   }
 
@@ -2187,7 +2203,7 @@ static uint32_t prv_cv_content_len(const FileHeader *fh) {
 //! A complete, non-temporary file starts here
 static bool prv_cv_read_file(uint32_t offs, PageHeader *hdr, FileHeader *fh) {
   prv_cv_read(offs, hdr, sizeof(*hdr));
-  if ((hdr->version != PFS_CUR_VERSION) || !IS_PAGE_TYPE(hdr->page_flags, PAGE_FLAG_START_PAGE) ||
+  if (!PFS_KNOWN_VERSION(hdr->version) || !IS_PAGE_TYPE(hdr->page_flags, PAGE_FLAG_START_PAGE) ||
       !prv_cv_crc_ok(hdr)) {
     return false;
   }
@@ -2283,7 +2299,7 @@ static bool prv_cv_sector_chain(uint16_t sector, uint32_t count) {
       return false;
     }
     prv_cv_read(sector * SECTOR_SIZE_BYTES, &hdr, sizeof(hdr));
-    if ((hdr.version != PFS_CUR_VERSION) || !IS_PAGE_TYPE(hdr.page_flags, PAGE_FLAG_CONT_PAGE) ||
+    if (!PFS_KNOWN_VERSION(hdr.version) || !IS_PAGE_TYPE(hdr.page_flags, PAGE_FLAG_CONT_PAGE) ||
         !prv_cv_crc_ok(&hdr)) {
       return false;
     }
@@ -2850,7 +2866,7 @@ static uint32_t prv_cv_sector_erase_count(uint16_t sector) {
 static bool prv_cv_erase_sector(CvState *st, uint16_t sector, uint32_t *erase_count) {
   PageHeader hdr;
   prv_cv_read(sector * SECTOR_SIZE_BYTES, &hdr, sizeof(hdr));
-  *erase_count = (hdr.version == PFS_CUR_VERSION) ? hdr.erase_count : 0;
+  *erase_count = PFS_KNOWN_VERSION(hdr.version) ? hdr.erase_count : 0;
   *erase_count = (*erase_count == UINT32_MAX) ? 1 : (*erase_count + 1);
 
   const uint32_t offs = sector * SECTOR_SIZE_BYTES;
@@ -2928,7 +2944,11 @@ static uint32_t prv_cv_page_erase_count(uint16_t page) {
 static void prv_cv_write_page_header(uint16_t page, uint8_t type, uint16_t next) {
   PageHeader hdr;
   memset(&hdr, 0xff, sizeof(hdr));
-  hdr.version = PFS_CUR_VERSION;
+  prv_cv_read(prv_page_to_flash_offset(page), &hdr.version, sizeof(hdr.version));
+  // Programmed over an erased header of the first version
+  if (hdr.version != PFS_FIRST_VERSION) {
+    hdr.version = PFS_CUR_VERSION;
+  }
   SET_PAGE_FLAGS(hdr.page_flags, type | PAGE_FLAG_ERASED_PAGE);
   hdr.erase_count = prv_cv_page_erase_count(page);
   hdr.next_page = next;

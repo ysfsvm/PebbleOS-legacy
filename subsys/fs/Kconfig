@@ -44,6 +44,16 @@ config FS_PFS_CONVERT_SECTOR_PAGES
       smaller pages, keeping its files. A conversion cut by a reset
       resumes at the next boot.
 
+config FS_PFS_VERSION_2
+    bool "Write PFS version 0x5002"
+    depends on FS_PFS_FORMAT_SECTOR_PAGES
+    default y if FLASH_S29VS
+    help
+      Write version 0x5002 in the page headers and read 0x5001 too. A
+      firmware whose page is the whole erase sector formats a filesystem
+      with a newer version instead of mounting the smaller pages as its
+      own. A header keeps 0x5001 until its sector is erased.
+
 config FS_PFS_SHELL_LITTER
     bool "PFS litter shell command"
     depends on FS_PFS && SHELL

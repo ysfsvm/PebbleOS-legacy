@@ -43,6 +43,7 @@ pbl_clar_test(test_pfs_layout_s29vs
     CONFIG_FLASH_S29VS=1
     CONFIG_FS_PFS_PAGE_SIZE=0x2000
     CONFIG_FS_PFS_FORMAT_SECTOR_PAGES=1
+    CONFIG_FS_PFS_VERSION_2=1
   OVERRIDES dummy_board snowy_partitions
 )
 
@@ -58,6 +59,7 @@ pbl_clar_test(test_pfs_s29vs
     CONFIG_FLASH_S29VS=1
     CONFIG_FS_PFS_PAGE_SIZE=0x2000
     CONFIG_FS_PFS_FORMAT_SECTOR_PAGES=1
+    CONFIG_FS_PFS_VERSION_2=1
   OVERRIDES dummy_board snowy_partitions
 )
 
@@ -74,5 +76,6 @@ pbl_clar_test(test_pfs_convert
     CONFIG_FS_PFS_PAGE_SIZE=0x2000
     CONFIG_FS_PFS_FORMAT_SECTOR_PAGES=1
     CONFIG_FS_PFS_CONVERT_SECTOR_PAGES=1
+    CONFIG_FS_PFS_VERSION_2=1
   OVERRIDES dummy_board snowy_partitions
 )
