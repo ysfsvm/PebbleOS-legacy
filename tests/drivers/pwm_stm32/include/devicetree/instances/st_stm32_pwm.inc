@@ -3,9 +3,10 @@
 
 /* TIM10 and TIM12 of the snowy tree, as the generator writes them */
 
-#include <devicetree/devices.h>
 #include <pbl/drivers/clk.h>
 #include <pbl/drivers/clk/stm32f4.h>
+
+#include <devicetree/devices.h>
 
 PBL_PWM_STM32_DEFINE(dt_pwm10, "pwm10", 0x40014400, PBL_CLK(&dt_rcc, STM32F4_CLK_ID(0, 177)),
                      &dt_pwm10_default, &dt_pwm10_sleep);

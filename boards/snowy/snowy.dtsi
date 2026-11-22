@@ -43,6 +43,12 @@
 		};
 	};
 
+	// TIM12 CH1 at 256 Hz
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm12 0 3906250 0>;
+	};
+
 	// 16 MiB Spansion S29VS on the FMC, bank 1. The first 128 KiB has 32 KiB
 	// bottom boot sectors, the rest 128 KiB sectors.
 	flash0: flash@60000000 {
@@ -165,7 +171,6 @@
 	};
 };
 
-// Backlight, defined in snowy.c
 &timers12 {
 	status = "okay";
 

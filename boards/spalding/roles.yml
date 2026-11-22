@@ -12,9 +12,7 @@ bt_hci_uart:
 display:
   symbol: "&snowy_display.disp"
   include: snowy/snowy_devices.h
-backlight:
-  symbol: "&snowy_backlight"
-  include: snowy/snowy_devices.h
+backlight: backlight
 flash:
   symbol: S29VS_FLASH
   include: pbl/drivers/flash/s29vs.h

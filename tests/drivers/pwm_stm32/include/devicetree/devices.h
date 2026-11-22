@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <pbl/drivers/backlight.h>
 #include <pbl/drivers/clk.h>
 #include <pbl/drivers/clk/stm32f4.h>
 #include <pbl/drivers/gpio.h>
@@ -22,3 +23,4 @@ extern const struct pbl_pwm_controller dt_pwm10;
 extern const struct pbl_pinctrl_state dt_pwm12_default;
 extern const struct pbl_pinctrl_state dt_pwm12_sleep;
 extern const struct pbl_pwm_controller dt_pwm12;
+extern const struct pbl_backlight dt_backlight;
