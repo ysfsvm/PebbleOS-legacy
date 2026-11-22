@@ -35,6 +35,7 @@
 
 #include <hardware/stm32f4_fmc.h>
 #include <hardware/stm32f4_gpio.h>
+#include <hardware/stm32f4_rcc.h>
 
 #define MHZ_TO_HZ(mhz) ((mhz) * 1000000U)
 
@@ -92,9 +93,12 @@ typedef enum S29VSStatusBit {
 [[maybe_unused]] static const uint16_t SPANSION_MANUFACTURER_ID = 0x01;
 [[maybe_unused]] static const uint16_t MACRONIX_MANUFACTURER_ID = 0xc2;
 #define S29VS_GPIO_PORT(n) (0x40020000U + (n) * STM32F4_GPIO_PORT_SIZE)
-#define S29VS_GPIOB        S29VS_GPIO_PORT(1)
-#define S29VS_GPIOD        S29VS_GPIO_PORT(3)
-#define S29VS_GPIOE        S29VS_GPIO_PORT(4)
+#define S29VS_PORT_B       1U
+#define S29VS_PORT_D       3U
+#define S29VS_PORT_E       4U
+#define S29VS_GPIOB        S29VS_GPIO_PORT(S29VS_PORT_B)
+#define S29VS_GPIOD        S29VS_GPIO_PORT(S29VS_PORT_D)
+#define S29VS_GPIOE        S29VS_GPIO_PORT(S29VS_PORT_E)
 
 #define S29VS_PIN_RESET 2U
 #define S29VS_AF_FMC    12U
@@ -162,7 +166,7 @@ static uint32_t s_num_flash_uses = 0;
 void s29vs_use(void) {
   pbl_irq_lock();
   if (s_num_flash_uses == 0) {
-    soc_stm32_clock_set(SOC_STM32_AHB3, RCC_AHB3Periph_FMC, true);
+    soc_stm32_clock_set(SOC_STM32_AHB3, STM32F4_RCC_AHB3ENR_FMCEN, true);
     prv_flash_idle_gpios(true);
   }
   s_num_flash_uses++;
@@ -174,7 +178,7 @@ void s29vs_release_many(uint32_t num_locks) {
   PBL_ASSERTN(s_num_flash_uses >= num_locks);
   s_num_flash_uses -= num_locks;
   if (s_num_flash_uses == 0) {
-    soc_stm32_clock_set(SOC_STM32_AHB3, RCC_AHB3Periph_FMC, false);
+    soc_stm32_clock_set(SOC_STM32_AHB3, STM32F4_RCC_AHB3ENR_FMCEN, false);
   }
   pbl_irq_unlock();
 }
@@ -320,7 +324,10 @@ static void prv_flash_protect_range(uint32_t start_sector, uint32_t end_sector) 
 
 static void prv_hw_init(void) {
   soc_stm32_clock_set(SOC_STM32_AHB1,
-                      RCC_AHB1Periph_GPIOB | RCC_AHB1Periph_GPIOD | RCC_AHB1Periph_GPIOE, true);
+                      STM32F4_RCC_AHB1ENR_GPIOEN(S29VS_PORT_B) |
+                          STM32F4_RCC_AHB1ENR_GPIOEN(S29VS_PORT_D) |
+                          STM32F4_RCC_AHB1ENR_GPIOEN(S29VS_PORT_E),
+                      true);
 
   // Configure the reset pin (D2)
   prv_gpio_init(S29VS_GPIOD, PBL_BIT(S29VS_PIN_RESET), STM32F4_GPIO_MODE_OUTPUT,
