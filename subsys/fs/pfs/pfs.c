@@ -34,9 +34,20 @@ static PBL_MUTEX_DEFINE(s_pfs_mutex);
 
 #define IS_FILE_TYPE(file_type, type) ((file_type) == (type))
 
-#define PFS_PAGE_SIZE              SUBSECTOR_SIZE_BYTES
+#ifdef CONFIG_FS_PFS_PAGE_SIZE
+#define PFS_PAGE_SIZE CONFIG_FS_PFS_PAGE_SIZE
+#else
+#define PFS_PAGE_SIZE SUBSECTOR_SIZE_BYTES
+#endif
 #define PFS_PAGES_PER_ERASE_SECTOR (SECTOR_SIZE_BYTES / PFS_PAGE_SIZE)
 #define GC_REGION_SIZE             SECTOR_SIZE_BYTES
+
+#ifdef CONFIG_FS_PFS_PAGE_SIZE
+static_assert((SECTOR_SIZE_BYTES % PFS_PAGE_SIZE) == 0, "Pages must divide the erase sector");
+#endif
+#ifdef CONFIG_FLASH_S29VS
+static_assert(PFS_PAGE_SIZE == 0x2000, "S29VS pages are 8 KiB, as in the stock firmware");
+#endif
 
 // The filesystem is broken into discrete blocks called 'pages'. Each page has
 // a header that describes the contents contained within it. Static fields are
