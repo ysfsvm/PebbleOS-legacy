@@ -79,8 +79,8 @@ config FLASH_LAYOUT_SNOWY
 config FLASH_GUARD
     bool "Guard regions the firmware does not own"
     help
-      Assert instead of issuing any erase or write that overlaps PRF,
-      shared PRF storage or MFG info, and refuse security register writes.
+      Refuse any erase or write that overlaps PRF, stock shared PRF
+      storage or MFG info.
 
 module = DRIVER_FLASH
 module-str = Flash
