@@ -9,20 +9,18 @@
 #include <string.h>
 
 #include <pbl/drivers/rng.h>
-#include <pbl/soc/stm32/clock.h>
+#include <pbl/drivers/rng/stm32.h>
 #include <pbl/util/bits.h>
 #include <pbl/util/size.h>
 
 #include <clar.h>
+#include <devicetree/devices.h>
 #include <hardware/stm32f4_rng.h>
-#include <stm32f4xx.h>
 
 #define RCC_BASE    0x40023800U
 #define RCC_AHB2ENR 0x34U
 #define RNG_BIT     6U
-
-#define SR_ERRORS \
-  (STM32F4_RNG_SR_SECS | STM32F4_RNG_SR_SEIS | STM32F4_RNG_SR_CECS | STM32F4_RNG_SR_CEIS)
+#define RNG_BASE    0x50060800U
 
 static struct {
   uint32_t cr;
@@ -99,45 +97,35 @@ static void prv_rcc_write(uint32_t val) {
   m.ahb2enr = val;
 }
 
-// Device header glue: what each use of RNG did, seen at the next
-////////////////////////////////////////////////////////////////////////////////
-
-static RNG_TypeDef s_shown;
-static RNG_TypeDef s_shown_copy;
-static bool s_used;
-static bool s_expect_dr;
-
-static void prv_rng_settle(void) {
-  if (!s_used) {
-    return;
-  }
-  s_used = false;
-  if (s_shown.CR != s_shown_copy.CR) {
-    m_cr_write(s_shown.CR);
-  } else if (s_shown.SR != s_shown_copy.SR) {
-    m_sr_write(s_shown.SR);
-  } else if (s_expect_dr) {
-    s_expect_dr = false;
-    (void)m_dr_read();
-  } else if ((s_shown_copy.SR & (STM32F4_RNG_SR_DRDY | SR_ERRORS)) == STM32F4_RNG_SR_DRDY) {
-    s_expect_dr = true;
+uint32_t fake_mmio_readl(uintptr_t addr) {
+  switch (addr) {
+    case RNG_BASE + STM32F4_RNG_CR_OFFSET:
+      return m.cr;
+    case RNG_BASE + STM32F4_RNG_SR_OFFSET:
+      return m.sr;
+    case RNG_BASE + STM32F4_RNG_DR_OFFSET:
+      return m_dr_read();
+    case RCC_BASE + RCC_AHB2ENR:
+      return m.ahb2enr;
+    default:
+      return 0U;
   }
 }
 
-RNG_TypeDef *fake_rng_access(void) {
-  prv_rng_settle();
-  s_shown.CR = m.cr;
-  s_shown.SR = m.sr;
-  s_shown.DR = prv_value();
-  s_shown_copy = s_shown;
-  s_used = true;
-  return &s_shown;
-}
-
-void soc_stm32_clock_set(enum soc_stm32_bus bus, uint32_t mask, bool enable) {
-  cl_assert_equal_i(bus, SOC_STM32_AHB2);
-  prv_rng_settle();
-  prv_rcc_write(enable ? (m.ahb2enr | mask) : (m.ahb2enr & ~mask));
+void fake_mmio_writel(uint32_t val, uintptr_t addr) {
+  switch (addr) {
+    case RNG_BASE + STM32F4_RNG_CR_OFFSET:
+      m_cr_write(val);
+      break;
+    case RNG_BASE + STM32F4_RNG_SR_OFFSET:
+      m_sr_write(val);
+      break;
+    case RCC_BASE + RCC_AHB2ENR:
+      prv_rcc_write(val);
+      break;
+    default:
+      break;
+  }
 }
 
 static void prv_dump_trace(const char *name, const char *trace) {
@@ -160,7 +148,6 @@ static void prv_dump_trace(const char *name, const char *trace) {
 
 #define CHECK_TRACE(name)               \
   do {                                  \
-    prv_rng_settle();                   \
     const char *trace = m_trace_stop(); \
     prv_dump_trace(#name, trace);       \
     cl_assert_equal_s(trace, name);     \
@@ -176,15 +163,16 @@ static void prv_rand(void) {
 
   m_trace_line("= rand");
   const bool ok = rng_rand(&out);
-  prv_rng_settle();
   m_trace_line("= %s %08x", ok ? "ok" : "fail", (unsigned int)out);
 }
 
 void test_rng_stm32__initialize(void) {
   memset(&m, 0, sizeof(m));
-  s_used = false;
-  s_expect_dr = false;
   s_trace_on = false;
+  *dt_rcc.dev.state = (struct pbl_device_state){0};
+  *pbl_rng_stm32.state = (struct pbl_device_state){0};
+  memset(dt_rcc.use_counts, 0, dt_rcc.num_clks);
+  cl_assert_equal_i(pbl_device_init(&dt_rcc.dev), 0);
 }
 
 void test_rng_stm32__normal(void) {

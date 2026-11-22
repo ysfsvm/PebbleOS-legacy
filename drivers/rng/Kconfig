@@ -26,8 +26,9 @@ config RNG_SF32LB
 
 config RNG_STM32
     bool "ST STM32"
-    default y if SOC_STM32F4
-    select HAL_STM32
+    default DT_HAS_ST_STM32_RNG_ENABLED
+    depends on SOC_STM32F4
+    select CLK
     help
       Support for the STM32F4 RNG.
 
