@@ -126,6 +126,7 @@ static struct {
   bool stall;
   int sda_held;
   bool busy_glitch;
+  bool busy_latched;
   int violations;
   char violation[160];
 } m;
@@ -157,6 +158,7 @@ static void m_devices_reset(void) {
   m.stall = false;
   m.sda_held = 0;
   m.busy_glitch = false;
+  m.busy_latched = false;
   m.violations = 0;
   m.violation[0] = '\0';
 }

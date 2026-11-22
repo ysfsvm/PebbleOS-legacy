@@ -156,6 +156,21 @@
   "sda in\n" \
   ""
 
+#define TRACE_BUSY_LATCHED_CLEARED_BY_SWRST \
+  "scl af\n" \
+  "sda af\n" \
+  "clk i2c1 on\n" \
+  "stop block\n" \
+  "i2c S 28w+ 00+ Sr 28r+ <01-\n" \
+  "stop release\n" \
+  "i2c P\n" \
+  "rst i2c1 on\n" \
+  "rst i2c1 off\n" \
+  "clk i2c1 off\n" \
+  "scl in\n" \
+  "sda in\n" \
+  ""
+
 #define TRACE_DATA_NACK \
   "scl af\n" \
   "sda af\n" \
@@ -382,6 +397,36 @@
   "clk i2c1 on\n" \
   "stop block\n" \
   "i2c S 0ew+ 00+ Sr 0er+ <08+ <01+ <10+ <ff+ <20+ <00+ <30-\n" \
+  "stop release\n" \
+  "i2c P\n" \
+  "rst i2c1 on\n" \
+  "rst i2c1 off\n" \
+  "clk i2c1 off\n" \
+  "scl in\n" \
+  "sda in\n" \
+  ""
+
+#define TRACE_ONE_BYTE_READ_NACKED \
+  "scl af\n" \
+  "sda af\n" \
+  "clk i2c1 on\n" \
+  "stop block\n" \
+  "i2c S 28w+ 02+ Sr 28r+ <5a-\n" \
+  "stop release\n" \
+  "i2c P\n" \
+  "rst i2c1 on\n" \
+  "rst i2c1 off\n" \
+  "clk i2c1 off\n" \
+  "scl in\n" \
+  "sda in\n" \
+  ""
+
+#define TRACE_READ_AFTER_ONE_BYTE_READ_ACKED \
+  "scl af\n" \
+  "sda af\n" \
+  "clk i2c1 on\n" \
+  "stop block\n" \
+  "i2c S 28w+ 02+ Sr 28r+ <5a- Sr 28r+ <a5+ <3c-\n" \
   "stop release\n" \
   "i2c P\n" \
   "rst i2c1 on\n" \
