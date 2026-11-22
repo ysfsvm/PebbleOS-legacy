@@ -909,8 +909,20 @@ class Generator:
         if spec is None:
             raise dev.error(f"{ctrl.node.path} is no pin controller")
         sym = self._pin_state(dev, spec, states[0])
+        for bank in ctrl.node.children:
+            if enabled(bank) and any(
+                c.has("gpio-hog") and enabled(c) for c in bank.children
+            ):
+                self._need_hog_bank(dev, bank)
         self.out.includes.add("devicetree/devices.h")
         return f"&{sym}"
+
+    def _need_hog_bank(self, consumer, bank):
+        """A GPIO bank of the pin controller holding hogs, before the users of its states."""
+        _, _, _, _, owner, device = self._template(
+            consumer, self._provider(consumer, bank, "gpio"), "gpio"
+        )
+        self._need(bank, owner, device, False)
 
     def _pin_state(self, consumer, spec, state):
         """The state's symbol. It goes in the pin controller's file, once, if something uses it."""

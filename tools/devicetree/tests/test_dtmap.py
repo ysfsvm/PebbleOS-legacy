@@ -1792,6 +1792,60 @@ def test_a_provider_another_argument_needs_stays_needed(tmp_path, first):
     )
 
 
+HOG_BANK = """
+        gpio_bank: bank {
+            compatible = "acme,gpio";
+            gpio-controller;
+            #gpio-cells = <2>;
+            %s
+        };
+"""
+HOG = "en-hog { gpio-hog; gpios = <3 0>; output-low; };"
+
+
+def hog_bank_generate(tmp_path, hog):
+    dts = DTS.replace(
+        "        unused_default: unused {", HOG_BANK % hog + "        unused_default: unused {"
+    )
+    specs = {"acme,gpio": spec("acme,gpio", GPIO_SPEC)}
+    return generate(tmp_path, config=(*ALL, "GPIO"), specs=specs, dts=dts)
+
+
+def test_users_of_pin_states_need_the_banks_holding_hogs(tmp_path):
+    gen = hog_bank_generate(tmp_path, HOG)
+    assert depends(gen) == [
+        (
+            "PBL_DEVICE_DEPENDS(dt_bus, &dt_bus.dev, &acme_intc.dev, &acme_clk.dev, "
+            "&dt_gpio_bank.dev);"
+        )
+    ]
+
+
+def test_banks_without_hogs_are_not_needed_by_pin_state_users(tmp_path):
+    gen = hog_bank_generate(tmp_path, "")
+    assert depends(gen) == [
+        "PBL_DEVICE_DEPENDS(dt_bus, &dt_bus.dev, &acme_intc.dev, &acme_clk.dev);"
+    ]
+
+
+def test_banks_with_only_disabled_hogs_are_not_needed_by_pin_state_users(tmp_path):
+    gen = hog_bank_generate(
+        tmp_path, HOG.replace("output-low;", 'output-low; status = "disabled";')
+    )
+    assert depends(gen) == [
+        "PBL_DEVICE_DEPENDS(dt_bus, &dt_bus.dev, &acme_intc.dev, &acme_clk.dev);"
+    ]
+
+
+def test_a_bank_holding_hogs_needs_a_driver(tmp_path):
+    with pytest.raises(DtError, match="no enabled driver"):
+        dts = DTS.replace(
+            "        unused_default: unused {",
+            HOG_BANK % HOG + "        unused_default: unused {",
+        )
+        generate(tmp_path, specs={"acme,gpio": spec("acme,gpio", GPIO_SPEC)}, dts=dts)
+
+
 def test_depends_can_only_be_false(tmp_path):
     with pytest.raises(DtError, match="'depends' can only be false"):
         args = [{"clock": 0, "depends": True}]
