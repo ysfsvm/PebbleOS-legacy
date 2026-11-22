@@ -4,6 +4,7 @@
 #pragma once
 
 #include <setjmp.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 /*!
@@ -36,6 +37,12 @@ typedef enum {
 
 //! Cut power at program or erase operation after_n_ops
 void fake_spi_flash_force_op_failure(uint32_t after_n_ops, FakeFlashCut cut, jmp_buf *retire_to);
+
+//! Fail erases of the sector holding addr
+void fake_spi_flash_fail_erase(bool fail, uint32_t addr);
+
+//! Failing erases return 0 instead of -EIO
+void fake_spi_flash_fail_erase_silently(bool silent);
 
 uint32_t fake_flash_op_count(void);
 
