@@ -1320,8 +1320,18 @@ bool pfs_active(void) {
 
 // Scans through the filesystem to see if we rebooted while a file was in the
 // middle of being created and cleans up these partial files.
+#if UNITTEST
+static bool s_test_rerun_reboot_cleanup;
+#endif
+
 void pfs_reboot_cleanup(void) {
   static uint16_t curr_pg = 0;
+#if UNITTEST
+  if (s_test_rerun_reboot_cleanup) {
+    s_test_rerun_reboot_cleanup = false;
+    curr_pg = 0;
+  }
+#endif
 
   for (; curr_pg < s_pfs_page_count; curr_pg++) {
     uint8_t page_flags = prv_get_page_flags(curr_pg);
@@ -3552,6 +3562,10 @@ void test_force_reboot_during_garbage_collection(uint16_t start_page) {
 
   // blow away the sector
   prv_handle_sector_erase(s_gc_block.gc_start_page, false);
+}
+
+void test_rerun_reboot_cleanup(void) {
+  s_test_rerun_reboot_cleanup = true;
 }
 
 void test_override_last_written_page(uint16_t start_page) {
