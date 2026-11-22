@@ -254,13 +254,8 @@ int pbl_flash_erase_async(const struct pbl_flash *flash, uint32_t addr, size_t l
 bool pbl_flash_is_erased(const struct pbl_flash *flash, uint32_t addr, size_t len) {
   prv_check_range(addr, len);
 
-  for (size_t i = 0; i < len; i++) {
-    if (s_state.storage[addr - s_state.offset + i] != 0xff) {
-      return false;
-    }
-  }
-
-  return true;
+  const uint8_t *bytes = &s_state.storage[addr - s_state.offset];
+  return (len == 0) || ((bytes[0] == 0xff) && (memcmp(bytes, bytes + 1, len - 1) == 0));
 }
 
 int pbl_flash_protect(const struct pbl_flash *flash, uint32_t addr, size_t len) {
