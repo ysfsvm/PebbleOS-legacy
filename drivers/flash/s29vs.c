@@ -34,6 +34,7 @@
 #include <pbl/util/size.h>
 
 #include <hardware/stm32f4_fmc.h>
+#include <hardware/stm32f4_gpio.h>
 
 #define MHZ_TO_HZ(mhz) ((mhz) * 1000000U)
 
@@ -90,12 +91,44 @@ typedef enum S29VSStatusBit {
 } S29VSStatusBit;
 [[maybe_unused]] static const uint16_t SPANSION_MANUFACTURER_ID = 0x01;
 [[maybe_unused]] static const uint16_t MACRONIX_MANUFACTURER_ID = 0xc2;
-static const GPIO_InitTypeDef s_default_at_flash_cfg = {
-  .GPIO_Mode = GPIO_Mode_AF,
-  .GPIO_Speed = GPIO_Speed_100MHz,
-  .GPIO_OType = GPIO_OType_PP,
-  .GPIO_PuPd = GPIO_PuPd_NOPULL
-};
+#define S29VS_GPIO_PORT(n) (0x40020000U + (n) * STM32F4_GPIO_PORT_SIZE)
+#define S29VS_GPIOB        S29VS_GPIO_PORT(1)
+#define S29VS_GPIOD        S29VS_GPIO_PORT(3)
+#define S29VS_GPIOE        S29VS_GPIO_PORT(4)
+
+#define S29VS_PIN_RESET 2U
+#define S29VS_AF_FMC    12U
+#define S29VS_PINS_ALL  0xFFFFU
+
+#define S29VS_SPEED_2MHZ   0U
+#define S29VS_SPEED_100MHZ 3U
+
+//! Push-pull, no pull
+static void prv_gpio_init(uintptr_t port, uint32_t pins, uint32_t mode, uint32_t speed) {
+  for (unsigned int pin = 0U; pin < 16U; pin++) {
+    if ((pins & PBL_BIT(pin)) == 0U) {
+      continue;
+    }
+    const uint32_t field = STM32F4_GPIO_FIELD2(pin);
+    pbl_modifyl(field, PBL_FIELD_PREP(field, mode), port + STM32F4_GPIO_MODER_OFFSET);
+    if (mode == STM32F4_GPIO_MODE_OUTPUT || mode == STM32F4_GPIO_MODE_AF) {
+      pbl_modifyl(field, PBL_FIELD_PREP(field, speed), port + STM32F4_GPIO_OSPEEDR_OFFSET);
+      pbl_modifyl(PBL_BIT(pin), 0U, port + STM32F4_GPIO_OTYPER_OFFSET);
+    }
+    pbl_modifyl(field, 0U, port + STM32F4_GPIO_PUPDR_OFFSET);
+  }
+}
+
+static void prv_gpio_set_af(uintptr_t port, unsigned int pin, uint32_t af) {
+  const uint32_t field = STM32F4_GPIO_FIELD4(pin);
+  pbl_modifyl(field, PBL_FIELD_PREP(field, af), port + STM32F4_GPIO_AFR_OFFSET(pin));
+}
+
+static void prv_reset_line(bool high) {
+  pbl_writel(
+      high ? STM32F4_GPIO_BSRR_SET(S29VS_PIN_RESET) : STM32F4_GPIO_BSRR_RESET(S29VS_PIN_RESET),
+      S29VS_GPIOD + STM32F4_GPIO_BSRR_OFFSET);
+}
 
 static void prv_issue_command_argument(FlashAddress sector_address, uint16_t cmd_arg);
 static status_t flash_impl_erase_sector_begin(FlashAddress sector_addr);
@@ -110,29 +143,16 @@ static void prv_flash_idle_gpios(bool enable_gpios) {
   }
   gpios_idled = enable_gpios;
 
-  GPIO_InitTypeDef gpio_init;
-  if (enable_gpios) {
-    gpio_init = s_default_at_flash_cfg;
-  } else {
-    gpio_init = (GPIO_InitTypeDef){
-      .GPIO_Mode = GPIO_Mode_AN,
-      .GPIO_Speed = GPIO_Speed_2MHz,
-      .GPIO_PuPd = GPIO_PuPd_NOPULL
-    };
-  }
+  const uint32_t mode = enable_gpios ? STM32F4_GPIO_MODE_AF : STM32F4_GPIO_MODE_ANALOG;
+  const uint32_t speed = enable_gpios ? S29VS_SPEED_100MHZ : S29VS_SPEED_2MHZ;
 
   // leave RESET_N and CE: they need to retain their state
   // Configure the rest as analog inputs to save as much power as possible
   // D2 - Reset - GPIO Reset line
   // D7 - FMC CE - FMC Chip Enable
-  gpio_init.GPIO_Pin = GPIO_Pin_7;
-  GPIO_Init(GPIOB, &gpio_init);
-
-  gpio_init.GPIO_Pin = GPIO_Pin_All & (~GPIO_Pin_2) & (~GPIO_Pin_7);
-  GPIO_Init(GPIOD, &gpio_init);
-
-  gpio_init.GPIO_Pin = GPIO_Pin_All & (~GPIO_Pin_0) & (~GPIO_Pin_1);
-  GPIO_Init(GPIOE, &gpio_init);
+  prv_gpio_init(S29VS_GPIOB, PBL_BIT(7), mode, speed);
+  prv_gpio_init(S29VS_GPIOD, S29VS_PINS_ALL & ~PBL_BIT(2) & ~PBL_BIT(7), mode, speed);
+  prv_gpio_init(S29VS_GPIOE, S29VS_PINS_ALL & ~PBL_BIT(0) & ~PBL_BIT(1), mode, speed);
 }
 
 static uint32_t s_num_flash_uses = 0;
@@ -303,16 +323,10 @@ static void prv_hw_init(void) {
                       RCC_AHB1Periph_GPIOB | RCC_AHB1Periph_GPIOD | RCC_AHB1Periph_GPIOE, true);
 
   // Configure the reset pin (D2)
-  GPIO_InitTypeDef gpio_init = {
-    .GPIO_Pin = GPIO_Pin_2,
-    .GPIO_Mode = GPIO_Mode_OUT,
-    .GPIO_Speed = GPIO_Speed_100MHz,
-    .GPIO_OType = GPIO_OType_PP,
-    .GPIO_PuPd = GPIO_PuPd_NOPULL
-  };
-  GPIO_Init(GPIOD, &gpio_init);
+  prv_gpio_init(S29VS_GPIOD, PBL_BIT(S29VS_PIN_RESET), STM32F4_GPIO_MODE_OUTPUT,
+                S29VS_SPEED_100MHZ);
 
-  GPIO_WriteBit(GPIOD, GPIO_Pin_2, Bit_SET);
+  prv_reset_line(true);
 
   // Configure pins relating to the FMC peripheral (30 pins!)
 
@@ -325,31 +339,29 @@ static void prv_hw_init(void) {
   // D6 - FMC RDY - FMC Ready line
   // D7 - FMC CE - FMC Chip Enable
 
-  GPIO_PinAFConfig(GPIOB, GPIO_PinSource7, GPIO_AF_FMC);
-  gpio_init = s_default_at_flash_cfg;
-  gpio_init.GPIO_Pin = GPIO_Pin_7;
-  GPIO_Init(GPIOB, &gpio_init);
+  prv_gpio_set_af(S29VS_GPIOB, 7, S29VS_AF_FMC);
+  prv_gpio_init(S29VS_GPIOB, PBL_BIT(7), STM32F4_GPIO_MODE_AF, S29VS_SPEED_100MHZ);
 
-  for (uint8_t pin_source = 0; pin_source < 16; ++pin_source) {
-    if (pin_source == 2) {
+  for (unsigned int pin = 0; pin < 16; ++pin) {
+    if (pin == S29VS_PIN_RESET) {
       continue;
     }
-    GPIO_PinAFConfig(GPIOD, pin_source, GPIO_AF_FMC);
+    prv_gpio_set_af(S29VS_GPIOD, pin, S29VS_AF_FMC);
   }
-  gpio_init.GPIO_Pin = GPIO_Pin_All & (~GPIO_Pin_2);
-  GPIO_Init(GPIOD, &gpio_init);
+  prv_gpio_init(S29VS_GPIOD, S29VS_PINS_ALL & ~PBL_BIT(S29VS_PIN_RESET), STM32F4_GPIO_MODE_AF,
+                S29VS_SPEED_100MHZ);
 
-  for (uint8_t pin_source = 2; pin_source < 16; ++pin_source) {
-    GPIO_PinAFConfig(GPIOE, pin_source, GPIO_AF_FMC);
+  for (unsigned int pin = 2; pin < 16; ++pin) {
+    prv_gpio_set_af(S29VS_GPIOE, pin, S29VS_AF_FMC);
   }
-  gpio_init.GPIO_Pin = GPIO_Pin_All & (~GPIO_Pin_0) & (~GPIO_Pin_1);
-  GPIO_Init(GPIOE, &gpio_init);
+  prv_gpio_init(S29VS_GPIOE, S29VS_PINS_ALL & ~PBL_BIT(0) & ~PBL_BIT(1), STM32F4_GPIO_MODE_AF,
+                S29VS_SPEED_100MHZ);
 
   // We have configured the pins, lets perform a full HW reset to put the chip
   // in a good state
-  GPIO_WriteBit(GPIOD, GPIO_Pin_2, Bit_RESET);
+  prv_reset_line(false);
   pbl_busy_wait_us(10); // only needs to be 50ns according to data sheet
-  GPIO_WriteBit(GPIOD, GPIO_Pin_2, Bit_SET);
+  prv_reset_line(true);
   pbl_busy_wait_us(30); // need 200ns + 10us before CE can be pulled low
 
   flash_impl_set_burst_mode(false);
