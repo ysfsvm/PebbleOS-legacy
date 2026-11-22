@@ -77,11 +77,6 @@ int pbl_flash_dev_init(const struct pbl_device *dev) {
   return 0;
 }
 
-// Standard Peripheral Library, on registers in memory
-////////////////////////////////////////////////////////////////////////////////
-
-GPIO_TypeDef fake_gpio[11];
-
 void RCC_GetClocksFreq(RCC_ClocksTypeDef *clocks) {
   clocks->SYSCLK_Frequency = HCLK_HZ;
   clocks->HCLK_Frequency = HCLK_HZ;
@@ -89,43 +84,36 @@ void RCC_GetClocksFreq(RCC_ClocksTypeDef *clocks) {
   clocks->PCLK2_Frequency = HCLK_HZ;
 }
 
-void RCC_AHB1PeriphResetCmd(uint32_t periph, FunctionalState state) {
-}
-
-#undef GPIO_WriteBit
-
-void GPIO_WriteBit(GPIO_TypeDef *gpio, uint16_t pin, BitAction val) {
-  const bool was = (gpio->ODR & pin) != 0;
-  st_GPIO_WriteBit(gpio, pin, val);
-  if (val != Bit_RESET) {
-    gpio->ODR |= pin;
-  } else {
-    gpio->ODR &= ~(uint32_t)pin;
-  }
-  cl_assert(gpio == GPIOD && pin == GPIO_Pin_2);
-  m_trace("rst %d", val != Bit_RESET);
-  if (!was && val != Bit_RESET) {
-    m_hw_reset();
-  }
-}
-
 #include "../../../drivers/flash/s29vs.c"
 
 #define REG_PATTERN 0xA5A5A5A5U
 
+#define GPIO_BASE  0x40020000U
+#define GPIO_PORTS 5
+
+struct gpio_regs {
+  uint32_t moder;
+  uint32_t otyper;
+  uint32_t ospeedr;
+  uint32_t pupdr;
+  uint32_t odr;
+  uint32_t afr[2];
+};
+
+static struct gpio_regs s_gpio[GPIO_PORTS];
 static uint32_t s_fmc_bcr1;
 static uint32_t s_fmc_btr1;
 static uint32_t s_fmc_bwtr1;
 
 static void prv_regs_reset(void) {
-  for (int i = 0; i < 11; i++) {
-    fake_gpio[i] = (GPIO_TypeDef){
-      .MODER = REG_PATTERN,
-      .OTYPER = REG_PATTERN & 0xFFFFU,
-      .OSPEEDR = REG_PATTERN,
-      .PUPDR = REG_PATTERN,
-      .ODR = REG_PATTERN & 0xFFFFU,
-      .AFR = {REG_PATTERN, REG_PATTERN},
+  for (int i = 0; i < GPIO_PORTS; i++) {
+    s_gpio[i] = (struct gpio_regs){
+      .moder = REG_PATTERN,
+      .otyper = REG_PATTERN & 0xFFFFU,
+      .ospeedr = REG_PATTERN,
+      .pupdr = REG_PATTERN,
+      .odr = REG_PATTERN & 0xFFFFU,
+      .afr = {REG_PATTERN, REG_PATTERN},
     };
   }
   s_fmc_bcr1 = REG_PATTERN;
@@ -134,17 +122,18 @@ static void prv_regs_reset(void) {
   s_fmc_clock = false;
 }
 
-static bool prv_fmc_pin(const GPIO_TypeDef *gpio, unsigned int pin) {
-  return ((gpio->MODER >> (2U * pin)) & 3U) == 2U &&
-         ((gpio->AFR[pin / 8U] >> (4U * (pin % 8U))) & 0xFU) == 12U;
+static bool prv_fmc_pin(const struct gpio_regs *gpio, unsigned int pin) {
+  return ((gpio->moder >> (2U * pin)) & 3U) == 2U &&
+         ((gpio->afr[pin / 8U] >> (4U * (pin % 8U))) & 0xFU) == 12U;
 }
 
 static void m_bus_check(uint32_t off) {
-  bool pins = prv_fmc_pin(GPIOB, 7);
+  bool pins = prv_fmc_pin(&s_gpio[1], 7);
   for (unsigned int pin = 0; pin < 16U; pin++) {
-    pins = pins && (pin == 2U || prv_fmc_pin(GPIOD, pin)) && (pin < 2U || prv_fmc_pin(GPIOE, pin));
+    pins = pins && (pin == 2U || prv_fmc_pin(&s_gpio[3], pin)) &&
+           (pin < 2U || prv_fmc_pin(&s_gpio[4], pin));
   }
-  const bool reset_high = ((GPIOD->MODER >> 4) & 3U) == 1U && (GPIOD->ODR & GPIO_Pin_2) != 0;
+  const bool reset_high = ((s_gpio[3].moder >> 4) & 3U) == 1U && (s_gpio[3].odr & PBL_BIT(2)) != 0;
   const bool bank = (s_fmc_bcr1 & STM32F4_FMC_BCR_MBKEN) != 0;
   if (!s_fmc_clock || !bank || !pins || !reset_high) {
     m_violation("bus access at %06x: clock %d bank %d pins %d RESET# %d", off, s_fmc_clock, bank,
@@ -152,17 +141,17 @@ static void m_bus_check(uint32_t off) {
   }
 }
 
-static void prv_trace_gpio(const char *name, const GPIO_TypeDef *gpio) {
-  m_trace("%s MODER %08x OTYPER %08x OSPEEDR %08x PUPDR %08x", name, gpio->MODER, gpio->OTYPER,
-          gpio->OSPEEDR, gpio->PUPDR);
-  m_trace("%s ODR %08x AFRL %08x AFRH %08x", name, gpio->ODR, gpio->AFR[0], gpio->AFR[1]);
+static void prv_trace_gpio(const char *name, const struct gpio_regs *gpio) {
+  m_trace("%s MODER %08x OTYPER %08x OSPEEDR %08x PUPDR %08x", name, gpio->moder, gpio->otyper,
+          gpio->ospeedr, gpio->pupdr);
+  m_trace("%s ODR %08x AFRL %08x AFRH %08x", name, gpio->odr, gpio->afr[0], gpio->afr[1]);
 }
 
 static void prv_trace_regs(void) {
   m_trace("FMC BCR1 %08x BTR1 %08x BWTR1 %08x", s_fmc_bcr1, s_fmc_btr1, s_fmc_bwtr1);
-  prv_trace_gpio("GPIOB", GPIOB);
-  prv_trace_gpio("GPIOD", GPIOD);
-  prv_trace_gpio("GPIOE", GPIOE);
+  prv_trace_gpio("GPIOB", &s_gpio[1]);
+  prv_trace_gpio("GPIOD", &s_gpio[3]);
+  prv_trace_gpio("GPIOE", &s_gpio[4]);
 }
 
 static uint32_t *prv_reg(uintptr_t addr) {
@@ -174,8 +163,40 @@ static uint32_t *prv_reg(uintptr_t addr) {
     case 0xA0000104U:
       return &s_fmc_bwtr1;
     default:
+      break;
+  }
+  cl_assert(addr >= GPIO_BASE && addr < GPIO_BASE + GPIO_PORTS * 0x400U);
+  struct gpio_regs *gpio = &s_gpio[(addr - GPIO_BASE) / 0x400U];
+  switch (addr % 0x400U) {
+    case 0x00:
+      return &gpio->moder;
+    case 0x04:
+      return &gpio->otyper;
+    case 0x08:
+      return &gpio->ospeedr;
+    case 0x0c:
+      return &gpio->pupdr;
+    case 0x14:
+      return &gpio->odr;
+    case 0x20:
+      return &gpio->afr[0];
+    case 0x24:
+      return &gpio->afr[1];
+    default:
       cl_fail("unexpected register access");
       return NULL;
+  }
+}
+
+static void prv_bsrr_write(uintptr_t addr, uint32_t val) {
+  cl_assert_equal_i(addr, GPIO_BASE + 3 * 0x400U + 0x18U);
+  cl_assert(val == PBL_BIT(2) || val == PBL_BIT(18));
+  struct gpio_regs *gpio = &s_gpio[3];
+  const bool was = (gpio->odr & PBL_BIT(2)) != 0;
+  gpio->odr = (gpio->odr | (val & 0xFFFFU)) & ~(val >> 16);
+  m_trace("rst %d", val == PBL_BIT(2));
+  if (!was && val == PBL_BIT(2)) {
+    m_hw_reset();
   }
 }
 
@@ -184,6 +205,13 @@ uint32_t fake_mmio_readl(uintptr_t addr) {
 }
 
 void fake_mmio_writel(uint32_t val, uintptr_t addr) {
+  if (addr >= GPIO_BASE && addr % 0x400U == 0x18U) {
+    prv_bsrr_write(addr, val);
+    return;
+  }
+  if (addr >= GPIO_BASE && addr < GPIO_BASE + GPIO_PORTS * 0x400U && s_irq_locks == 0) {
+    m_violation("GPIO register %08x written with interrupts enabled", (unsigned int)addr);
+  }
   uint32_t *reg = prv_reg(addr);
   if (reg == &s_fmc_bcr1 && ((*reg ^ val) & 1U) != 0) {
     m_trace("fmc bank %s", (val & 1U) ? "on" : "off");
