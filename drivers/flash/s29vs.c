@@ -24,6 +24,7 @@
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/fatal.h>
 #include <pbl/kernel/irq.h>
+#include <pbl/kernel/mmio.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/stm32/clock.h>
@@ -158,7 +159,7 @@ static void flash_impl_release(void) {
 }
 
 static uint16_t flash_s29vs_read_short(FlashAddress addr) {
-  return *((__IO uint16_t *)(FMC_BANK_1_BASE_ADDRESS + addr));
+  return pbl_readw(FMC_BANK_1_BASE_ADDRESS + addr);
 }
 
 static FlashAddress flash_impl_get_sector_base_address(FlashAddress addr) {
@@ -205,7 +206,7 @@ static void prv_issue_command_argument(FlashAddress sector_address, uint16_t cmd
   // word aligned address as opposed to a byte address.
   static const uint32_t COMMAND_ARGUMENT_ADDRESS = 0x2AA;
 
-  ((__IO uint16_t *)(FMC_BANK_1_BASE_ADDRESS + sector_address))[COMMAND_ARGUMENT_ADDRESS] = cmd_arg;
+  pbl_writew(cmd_arg, FMC_BANK_1_BASE_ADDRESS + sector_address + COMMAND_ARGUMENT_ADDRESS * 2U);
 }
 
 //! @param sector_address The address of the start of the sector to write the command to.
@@ -215,7 +216,7 @@ static void prv_issue_command(FlashAddress sector_address, S29VSCommand cmd) {
   // word aligned address as opposed to a byte address.
   static const uint32_t COMMAND_ADDRESS = 0x555;
 
-  ((__IO uint16_t *)(FMC_BANK_1_BASE_ADDRESS + sector_address))[COMMAND_ADDRESS] = cmd;
+  pbl_writew(cmd, FMC_BANK_1_BASE_ADDRESS + sector_address + COMMAND_ADDRESS * 2U);
 }
 
 static void prv_software_reset(void) {
@@ -232,8 +233,7 @@ static void prv_allow_write_if_sector_is_not_protected(bool lock, uint32_t secto
   prv_issue_command_argument(0, S29VSCommand_SectorLock);
 
   int lock_flag = (lock ? 0 : 1) << 7; // set A6 to 0 to lock and 1 to unlock
-  ((__IO uint16_t *)(FMC_BANK_1_BASE_ADDRESS + sector_addr + lock_flag))[0] =
-      S29VSCommand_SectorLock;
+  pbl_writew(S29VSCommand_SectorLock, FMC_BANK_1_BASE_ADDRESS + sector_addr + lock_flag);
 }
 
 [[maybe_unused]] static uint16_t prv_read_manufacturer_id(void) {
@@ -267,7 +267,7 @@ static void prv_write_configuration_register(uint16_t data) {
   // Cycle 4: SA+ Address 555h & Data 29h
   prv_issue_command(0, S29VSCommand_WriteBufferLoad);
   prv_issue_command_argument(0, 0);
-  ((__IO uint16_t *)(FMC_BANK_1_BASE_ADDRESS))[0] = data;
+  pbl_writew(data, FMC_BANK_1_BASE_ADDRESS);
   prv_issue_command(0, S29VSCommand_BufferToFlash);
 
   prv_software_reset();
@@ -287,8 +287,8 @@ static void prv_flash_protect_range(uint32_t start_sector, uint32_t end_sector) 
   start_sector = flash_impl_get_sector_base_address(start_sector);
   end_sector = flash_impl_get_sector_base_address(end_sector);
 
-  ((__IO uint16_t *)(FMC_BANK_1_BASE_ADDRESS + start_sector))[0] = S29VSCommand_SectorLockRangeArg;
-  ((__IO uint16_t *)(FMC_BANK_1_BASE_ADDRESS + end_sector))[0] = S29VSCommand_SectorLockRangeArg;
+  pbl_writew(S29VSCommand_SectorLockRangeArg, FMC_BANK_1_BASE_ADDRESS + start_sector);
+  pbl_writew(S29VSCommand_SectorLockRangeArg, FMC_BANK_1_BASE_ADDRESS + end_sector);
 
   flash_impl_release();
 }
@@ -503,9 +503,9 @@ static status_t flash_impl_erase_resume(FlashAddress sector_addr) {
 }
 
 // A chip erase would take PRF, MFG info and the boot FPGA bitstream with it.
-static void prv_read_words_pio(uint16_t *buffer, uint16_t *flash_data_region, uint32_t num_words) {
+static void prv_read_words_pio(uint16_t *buffer, uintptr_t flash_data_region, uint32_t num_words) {
   for (uint32_t words_read = 0; words_read < num_words; words_read++) {
-    buffer[words_read] = flash_data_region[words_read];
+    buffer[words_read] = pbl_readw(flash_data_region + words_read * 2U);
   }
 }
 
@@ -525,7 +525,7 @@ static status_t flash_impl_read_sync(void *buffer_ptr, FlashAddress start_addr,
   uint16_t *buff_ptr = (uint16_t *)&buffer[bytes_read];
   if (odd_start_addr) {
     // read first byte into a temporary buffer but read from source on aligned word boundary
-    uint16_t temp_buffer = *(__IO uint16_t *)(flash_data_addr - 1);
+    uint16_t temp_buffer = pbl_readw(flash_data_addr - 1);
     buffer[bytes_read++] = (uint8_t)((temp_buffer >> 8) & 0xFF);
   }
 
@@ -537,14 +537,14 @@ static status_t flash_impl_read_sync(void *buffer_ptr, FlashAddress start_addr,
     if (!odd_buff_addr) {
       // Both flash_data_addr and buffer are aligned
       uint32_t num_words = (buffer_size - bytes_read) / 2;
-      prv_read_words_pio(buff_ptr, (uint16_t *)(flash_data_addr + bytes_read), num_words);
+      prv_read_words_pio(buff_ptr, flash_data_addr + bytes_read, num_words);
       bytes_read += num_words * 2;
     } else {
       // Not aligned - read into temporary buffer and copy over
-      __IO uint16_t *flash_data_region = (__IO uint16_t *)(flash_data_addr + bytes_read);
+      const uintptr_t flash_data_region = flash_data_addr + bytes_read;
       uint32_t num_words = (buffer_size - bytes_read) / 2;
       for (uint32_t words_read = 0; words_read < num_words; words_read++) {
-        uint16_t temp_buffer = flash_data_region[words_read];
+        uint16_t temp_buffer = pbl_readw(flash_data_region + words_read * 2U);
         buffer[bytes_read++] = (uint8_t)(temp_buffer & 0xFF);
         buffer[bytes_read++] = (uint8_t)((temp_buffer >> 8) & 0xFF);
       }
@@ -555,7 +555,7 @@ static status_t flash_impl_read_sync(void *buffer_ptr, FlashAddress start_addr,
   // See if there are any remaining bytes left - at this point - flash_data_addr is still halfword
   // aligned
   if (buffer_size - bytes_read == 1) {
-    uint16_t temp_buffer = *(__IO uint16_t *)(flash_data_addr + bytes_read);
+    uint16_t temp_buffer = pbl_readw(flash_data_addr + bytes_read);
     buffer[bytes_read++] = (uint8_t)(temp_buffer & 0xFF);
   } else if (buffer_size - bytes_read != 0) {
     // Should not reach here
@@ -622,8 +622,7 @@ static int flash_impl_write_page_begin(const void *vp_buffer, const FlashAddress
   // We're now ready to write the words. Subsequent writes to the sector will
   // actually write the data through to the write buffer.
 
-  __IO uint16_t *flash_write_dest =
-      (__IO uint16_t *)(FMC_BANK_1_BASE_ADDRESS + (start_addr & ~0x1));
+  uintptr_t flash_write_dest = FMC_BANK_1_BASE_ADDRESS + (start_addr & ~0x1);
   uint32_t bytes_remaining = bytes_in_page;
 
   // Handle leading byte
@@ -631,10 +630,10 @@ static int flash_impl_write_page_begin(const void *vp_buffer, const FlashAddress
     // Handle a buffer with an unaligned start. Write 0xff for the first byte
     // since flash can only flip ones to zeros, and no data will be lost.
     const uint16_t first_short_value = 0xFF | ((*buffer) << 8);
-    *flash_write_dest = first_short_value;
+    pbl_writew(first_short_value, flash_write_dest);
 
     // Now for the rest of the function let's pretend this never happened.
-    ++flash_write_dest;
+    flash_write_dest += 2U;
     ++buffer;
     --bytes_remaining;
   }
@@ -643,7 +642,8 @@ static int flash_impl_write_page_begin(const void *vp_buffer, const FlashAddress
   for (; bytes_remaining >= 2; bytes_remaining -= 2, buffer += 2) {
     uint16_t buffer_word;
     memcpy(&buffer_word, buffer, sizeof buffer_word);
-    *flash_write_dest++ = buffer_word;
+    pbl_writew(buffer_word, flash_write_dest);
+    flash_write_dest += 2U;
   }
 
   // Handle trailing byte if present. This will be present if we started out
@@ -655,7 +655,7 @@ static int flash_impl_write_page_begin(const void *vp_buffer, const FlashAddress
     // second byte as bits are only allowed to be written from 1 -> 0. 1s will
     // stay 1s, and 0s will stay 0s.
     const uint16_t trailing_short_value = *buffer | 0xFF00;
-    *flash_write_dest = trailing_short_value;
+    pbl_writew(trailing_short_value, flash_write_dest);
   }
 
   // Buffer writing is complete, issue the buffer to flash command to actually
