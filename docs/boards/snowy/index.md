@@ -111,9 +111,19 @@ needs every stock reader checked first.
 - **RTC backup registers** (`include/pbl/system/rtc_registers.h`): DR0 boot
   bits, DR1 stuck buttons, DR2 bootloader version, DR4 factory-reset wipe
   marker (`CONFIG_LEGACY_FACTORY_RESET_KEEPS_FIRMWARE`; the stock firmware
-  for this watch does not use DR4), DR5-DR8 reboot reason, DR11 erase in
+  for this watch does not use DR4), DR5-DR10 reboot reason, DR11 erase in
   progress, DR12-DR16 time zone, DR17-DR18 compass calibration, DR19 last
-  app slot. DR3, DR9 and DR10 are not read or written.
+  app slot. DR3 is not read or written.
+- **Reboot reason** (`pebble/system/reboot_reason.c`,
+  `CONFIG_LEGACY_REBOOT_REASON_STOCK_LAYOUT`): DR5 code and flags, DR6 the
+  extra word, DR7-DR9 a stuck task's PC, LR and callback (a hard lockup's
+  PC, LR and exception); for an event queue overflow DR7 task 0 and DR8-DR10
+  the LR, the current and the dropped event. A stack overflow of a task
+  outside 0-7 stores 3 in the task byte and the task in the second data
+  byte. The recovery firmware fails an assert at every start, before it
+  clears the reason, when the task word of an event queue reason or the
+  task byte of a stack overflow is outside 0-7 and 9; the stock firmware
+  accepts 0-8 and 10.
 - **Boot bits, reboot reason, stuck buttons** (`pebble/system/bootbits.c`,
   `reboot_reason.c`): the bootloader picks the firmware or the recovery by
   the boot bits, and counts boots with each button held in DR1, which
@@ -136,7 +146,7 @@ watch.
 
 | State | Stock firmware and recovery | This firmware | Effect |
 | --- | --- | --- | --- |
-| Reboot reason | Six words, DR5-DR10: code and flags, an extra word, four words of detail | Four words, DR5-DR8: code and flags, three words of detail. DR9 and DR10 are left alone | The code and flags word is the same. The detail of a reason written by one side is read one word off by the other, and stock can show a stale DR9 or DR10 |
+| Reboot reason | Stock firmware: six words, DR5-DR10. Recovery: seven, DR5-DR11, with a stuck mutex's LR and PC in DR10 and DR11, printed for a watchdog reason when DR10 is not zero | Six words, DR5-DR10, in the stock order; DR10 stays zero for a watchdog reason | A build without `CONFIG_LEGACY_REBOOT_REASON_STOCK_LAYOUT` keeps four words, DR5-DR8, and reads the detail of a watchdog, event queue or hard lockup reason written in the other order one word off |
 | Reboot reason codes 26-29 | Dialog boot fault, Bluetooth core dump, core dump, core dump entry failed | Bluetooth core dump, core dump, core dump entry failed, hard lockup | The side that starts next names these four reasons wrongly |
 | RTC alarm A | Not used | The clock event without `CONFIG_TIMER_STM32_RTC_WUT`; it stays enabled in the backup domain across a reset | None known |
 | Calendar year | 2000-2037; a year outside is clamped and the calendar rewritten | 2000-2099 | None before 2038 |

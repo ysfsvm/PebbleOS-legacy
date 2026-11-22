@@ -7,3 +7,12 @@ pbl_clar_test(test_task_wdt_hardlockup_report
   DEFINES
     CONFIG_TASK_WDT_HARDLOCKUP=1
 )
+
+pbl_clar_test(test_reboot_reason_stock_layout
+  OVERRIDES
+    stm32f4_rtc_bkp
+  DEFINES
+    PBL_NO_LINKER_SCRIPT
+    CONFIG_SOC_STM32F4=1
+    CONFIG_LEGACY_REBOOT_REASON_STOCK_LAYOUT=1
+)

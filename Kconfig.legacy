@@ -112,6 +112,20 @@ config LEGACY_ASSERT_CALLER_LR
       Record the caller of a failed libc assert() as the reboot reason's
       address, rather than assert() itself.
 
+config LEGACY_REBOOT_REASON_STOCK_LAYOUT
+    bool "Keep the reboot reason in the stock layout"
+    depends on SOC_STM32F4
+    default y
+    help
+      Keep the reboot reason in the RTC backup registers DR5 to DR10 in
+      the order the stock firmware and the stock recovery firmware read
+      it, so either prints a reason this firmware left: the stuck task's
+      and the event queue's words where they print them, and only task
+      numbers they know (a stack overflow of another task keeps its
+      number in the second data byte). The stock recovery firmware fails
+      an assert at every start on an event queue reason in this
+      firmware's own order.
+
 endmenu
 
 config BT_LE_IDLE_SLAVE_LATENCY
