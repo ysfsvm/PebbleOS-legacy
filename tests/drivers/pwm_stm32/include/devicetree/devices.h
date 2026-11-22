@@ -1,0 +1,15 @@
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#pragma once
+
+#include <pbl/drivers/clk.h>
+#include <pbl/drivers/clk/stm32f4.h>
+#include <pbl/drivers/gpio.h>
+#include <pbl/drivers/intc.h>
+
+extern const struct pbl_clk_controller dt_rcc;
+extern const struct pbl_gpio_port dt_gpiob;
+extern const struct pbl_intc dt_gpiob_intc;
+extern const struct pbl_gpio_port dt_gpiof;
+extern const struct pbl_intc dt_gpiof_intc;
