@@ -153,6 +153,30 @@
 	status = "okay";
 };
 
+// Vibe H-bridge, defined in snowy.c
+&timers10 {
+	status = "okay";
+
+	pwm10: pwm {
+		pinctrl-0 = <&pwm10_default>;
+		pinctrl-1 = <&pwm10_sleep>;
+		pinctrl-names = "default", "sleep";
+		status = "okay";
+	};
+};
+
+// Backlight, defined in snowy.c
+&timers12 {
+	status = "okay";
+
+	pwm12: pwm {
+		pinctrl-0 = <&pwm12_default>;
+		pinctrl-1 = <&pwm12_sleep>;
+		pinctrl-names = "default", "sleep";
+		status = "okay";
+	};
+};
+
 // CC2564 HCI, driven by the legacy HCI transport
 &usart1 {
 	pinctrl-0 = <&usart1_default>;

@@ -13,7 +13,6 @@
 #include <pbl/drivers/clk/stm32f4.h>
 #include <pbl/drivers/dma/stm32f4.h>
 #include <pbl/drivers/pmic/max14690.h>
-#include <pbl/drivers/pwm/stm32.h>
 #include <pbl/drivers/uart/stm32.h>
 #include <pbl/drivers/uart/stm32_legacy.h>
 #include <pbl/kernel/irq.h>
@@ -116,19 +115,13 @@ const struct pbl_max14690 *const MAX14690 = &s_max14690;
 // Backlight: TIM12 CH1
 ///////////////////////////////////////////////////////////////////////////////
 
-PBL_PWM_STM32_DEFINE(s_tim12, "tim12", TIM12, RCC_APB1Periph_TIM12, false, GPIO_AF_TIM12,
-                     PBL_GPIO(STM32_GPIOB, 14, 0));
-
 PBL_BACKLIGHT_PWM_DEFINE(snowy_backlight, "backlight", PBL_GPIO(nullptr, 0, 0),
-                         PBL_PWM(&s_tim12.ctrl, 0, PBL_PWM_HZ(256), 0));
+                         PBL_PWM(&dt_pwm12, 0, PBL_PWM_HZ(256), 0));
 
 // Vibe: H-bridge driven by TIM10 CH1, enabled by PF4
 ///////////////////////////////////////////////////////////////////////////////
 
-PBL_PWM_STM32_DEFINE(s_tim10, "tim10", TIM10, RCC_APB2Periph_TIM10, true, GPIO_AF_TIM10,
-                     PBL_GPIO(STM32_GPIOB, 8, 0));
-
-PBL_VIBE_PWM_DEFINE(snowy_vibe, true, .pwm = PBL_PWM(&s_tim10.ctrl, 0, PBL_PWM_HZ(22000), 0),
+PBL_VIBE_PWM_DEFINE(snowy_vibe, true, .pwm = PBL_PWM(&dt_pwm10, 0, PBL_PWM_HZ(22000), 0),
                     .ctl = PBL_GPIO(STM32_GPIOF, 4, 0));
 
 // Ambient light: phototransistor on ADC1 channel 2, powered by PA3

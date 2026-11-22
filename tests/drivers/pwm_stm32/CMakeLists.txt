@@ -11,6 +11,8 @@ pbl_clar_test(test_pwm_stm32
     drivers/gpio/gpio.c
     drivers/gpio/stm32.c
     drivers/intc/intc.c
+    drivers/pinctrl/pinctrl.c
+    drivers/pinctrl/stm32.c
     drivers/pwm/pwm.c
     drivers/pwm/stm32.c
     drivers/vibe/pwm.c
@@ -20,7 +22,6 @@ pbl_clar_test(test_pwm_stm32
   INCLUDES
     tests/drivers/pwm_stm32/include
     soc/stm32/stm32f4
-    third_party/hal_stm32/stm32-sdk/STM32F4xx_StdPeriph_Driver/inc
   DEFINES
     PBL_NO_LINKER_SCRIPT
     CONFIG_DEVICE_LOG_LEVEL=0

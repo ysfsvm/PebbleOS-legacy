@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Yusuf Sevim
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 
-// Every option of a pin is written, so each UART, SPI and I2C pin names its speed: 50 MHz
-// (slew-rate 2).
-
 &pinctrl {
 	// External pull-ups
 	i2c1_default: i2c1-0 {
@@ -56,6 +53,44 @@
 			pinmux = <STM32_PINMUX('C', 11, AF7)>; /* USART3_RX */
 			bias-disable;
 			slew-rate = <2>;
+		};
+	};
+
+	pwm10_default: pwm10-0 {
+		pins1 {
+			pinmux = <STM32_PINMUX('B', 8, AF3)>; /* TIM10_CH1 */
+			bias-pull-down;
+			drive-push-pull;
+			slew-rate = <3>;
+		};
+	};
+
+	pwm10_sleep: pwm10-sleep-0 {
+		pins1 {
+			pinmux = <STM32_PINMUX('B', 8, GPIO)>;
+			bias-disable;
+			drive-push-pull;
+			output-low;
+			slew-rate = <0>;
+		};
+	};
+
+	pwm12_default: pwm12-0 {
+		pins1 {
+			pinmux = <STM32_PINMUX('B', 14, AF9)>; /* TIM12_CH1 */
+			bias-pull-down;
+			drive-push-pull;
+			slew-rate = <3>;
+		};
+	};
+
+	pwm12_sleep: pwm12-sleep-0 {
+		pins1 {
+			pinmux = <STM32_PINMUX('B', 14, GPIO)>;
+			bias-disable;
+			drive-push-pull;
+			output-low;
+			slew-rate = <0>;
 		};
 	};
 };
