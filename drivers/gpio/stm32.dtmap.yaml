@@ -26,3 +26,16 @@ args:
   - clock: 0
     up: true
     of: st,syscfg
+  # gpio-hog children
+  - list: []
+    item:
+      define: PBL_GPIO_STM32_HOG
+      args:
+        - prop: gpios
+          index: 0
+        - prop: gpios
+          index: 1
+        - flags:
+            input: PBL_GPIO_INPUT
+            output-low: PBL_GPIO_OUTPUT_INACTIVE
+            output-high: PBL_GPIO_OUTPUT_ACTIVE

@@ -15,10 +15,21 @@
 /**
  * @defgroup drivers_gpio_stm32 STM32 GPIO
  * @ingroup drivers_gpio
- * @brief @ref drivers_gpio ports of the STM32F4 SoCs, the gpio@ banks of the pin controller in
- * the tree.
+ * @brief @ref drivers_gpio ports of the STM32F4 SoCs.
  * @{
  */
+
+/** @brief A gpio-hog, set up at port init. */
+struct pbl_gpio_stm32_hog {
+  /** Pin. */
+  uint8_t pin;
+  /** Flags; initial level is logical. */
+  uint32_t flags;
+};
+
+/** @brief A gpio-hog from its pin, flags cell and mode. */
+#define PBL_GPIO_STM32_HOG(_pin, _dt_flags, _mode) \
+  {.pin = (_pin), .flags = PBL_GPIO_DT_FLAGS(_dt_flags) | (_mode)}
 
 /** @brief STM32 GPIO port. */
 struct pbl_gpio_stm32 {
@@ -30,6 +41,10 @@ struct pbl_gpio_stm32 {
   struct pbl_clk clk;
   /** Port index (A = 0), also its EXTI port source. */
   uint8_t index;
+  /** Pins set up at init. */
+  const struct pbl_gpio_stm32_hog *hogs;
+  /** Number of hogs. */
+  uint8_t num_hogs;
 };
 
 #define STM32_GPIOA (&dt_gpioa)

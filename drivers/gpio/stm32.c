@@ -123,7 +123,29 @@ const struct pbl_gpio_port *pbl_gpio_stm32_port(uint8_t index) {
 }
 
 static int prv_init(const struct pbl_device *dev) {
-  return pbl_clk_enable(&prv_port(container_of(dev, const struct pbl_gpio_port, dev))->clk);
+  const struct pbl_gpio_stm32 *port = prv_port(container_of(dev, const struct pbl_gpio_port, dev));
+  int ret;
+
+  ret = pbl_clk_enable(&port->clk);
+  if (ret != 0) {
+    return ret;
+  }
+
+  for (uint8_t i = 0U; i < port->num_hogs; i++) {
+    uint32_t flags = port->hogs[i].flags;
+
+    if ((flags & PBL_GPIO_ACTIVE_LOW) &&
+        (flags & (PBL_GPIO_OUTPUT_INIT_LOW | PBL_GPIO_OUTPUT_INIT_HIGH))) {
+      flags ^= PBL_GPIO_OUTPUT_INIT_LOW | PBL_GPIO_OUTPUT_INIT_HIGH;
+    }
+
+    ret = prv_configure(&port->port, port->hogs[i].pin, flags & ~PBL_GPIO_OUTPUT_INIT_LOGICAL);
+    if (ret != 0) {
+      return ret;
+    }
+  }
+
+  return 0;
 }
 
 // Pin interrupts
@@ -254,8 +276,9 @@ static int prv_intc_init(const struct pbl_device *dev) {
 
 #define PORT_INDEX(_base) ((uint8_t)(((_base) / STM32F4_GPIO_PORT_SIZE) % 16U))
 
-#define PBL_GPIO_STM32_DEFINE(sym, _name, _base, _clk, _exti, _syscfg, _syscfg_clk)       \
+#define PBL_GPIO_STM32_DEFINE(sym, _name, _base, _clk, _exti, _syscfg, _syscfg_clk, ...)  \
   extern const struct pbl_intc sym##_intc;                                                \
+  __VA_OPT__(static const struct pbl_gpio_stm32_hog sym##_hogs[] = {__VA_ARGS__};)        \
   PBL_DEVICE_STATE_DEFINE(sym);                                                           \
   PBL_DEVICE_STATE_DEFINE(sym##_intc);                                                    \
   PBL_DEVICE_INSTANCE(sym, struct pbl_gpio_stm32, struct pbl_gpio_port, port){            \
@@ -263,6 +286,7 @@ static int prv_intc_init(const struct pbl_device *dev) {
     .base = (_base),                                                                      \
     .clk = _clk,                                                                          \
     .index = PORT_INDEX(_base),                                                           \
+    __VA_OPT__(.hogs = sym##_hogs, .num_hogs = ARRAY_LENGTH(sym##_hogs), )                \
   };                                                                                      \
   PBL_DEVICE_INSTANCE(sym##_intc, struct pbl_gpio_stm32_intc, struct pbl_intc, intc) {    \
     .intc =                                                                               \
