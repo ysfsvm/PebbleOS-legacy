@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/input/pebble,pwm-hbridge-vibrator.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Vibration motor on an H-bridge driven by one PWM channel
+
+maintainers:
+  - retake <ysfss@protonmail.com>
+
+description: >
+  A motor across an H-bridge whose two sides one PWM channel drives in
+  opposition: a 50% duty cycle stops the motor, higher duty cycles run it
+  forward, up to full strength at 100%, and lower ones backwards, which
+  brakes it. pwm-vibrator expects 0% to stop the motor instead.
+
+properties:
+  compatible:
+    const: pebble,pwm-hbridge-vibrator
+
+  pwms:
+    maxItems: 1
+
+  pwm-names:
+    items:
+      - const: enable
+
+  enable-gpios:
+    maxItems: 1
+    description: Enables the H-bridge while the motor runs.
+
+required:
+  - compatible
+  - pwms
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    vibrator {
+        compatible = "pebble,pwm-hbridge-vibrator";
+        pwms = <&pwm10 0 45454 0>;
+        pwm-names = "enable";
+        enable-gpios = <&gpiof 4 GPIO_ACTIVE_HIGH>;
+    };

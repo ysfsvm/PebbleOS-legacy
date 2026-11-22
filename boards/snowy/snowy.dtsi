@@ -49,6 +49,14 @@
 		pwms = <&pwm12 0 3906250 0>;
 	};
 
+	// TIM10 CH1 at 22 kHz, the H-bridge enabled by PF4
+	vibrator: vibrator {
+		compatible = "pebble,pwm-hbridge-vibrator";
+		pwms = <&pwm10 0 45454 0>;
+		pwm-names = "enable";
+		enable-gpios = <&gpiof 4 GPIO_ACTIVE_HIGH>;
+	};
+
 	// 16 MiB Spansion S29VS on the FMC, bank 1. The first 128 KiB has 32 KiB
 	// bottom boot sectors, the rest 128 KiB sectors.
 	flash0: flash@60000000 {
@@ -159,7 +167,6 @@
 	status = "okay";
 };
 
-// Vibe H-bridge, defined in snowy.c
 &timers10 {
 	status = "okay";
 

@@ -11,6 +11,7 @@
 #include <pbl/drivers/pinctrl.h>
 #include <pbl/drivers/pinctrl/stm32.h>
 #include <pbl/drivers/pwm.h>
+#include <pbl/drivers/vibe.h>
 
 extern const struct pbl_clk_controller dt_rcc;
 extern const struct pbl_gpio_port dt_gpiob;
@@ -24,3 +25,4 @@ extern const struct pbl_pinctrl_state dt_pwm12_default;
 extern const struct pbl_pinctrl_state dt_pwm12_sleep;
 extern const struct pbl_pwm_controller dt_pwm12;
 extern const struct pbl_backlight dt_backlight;
+extern const struct pbl_vibe dt_vibrator;

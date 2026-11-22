@@ -11,7 +11,6 @@
 #include <pbl/drivers/display/ice40lp.h>
 #include <pbl/drivers/imu/mag3110/mag3110.h>
 #include <pbl/drivers/uart.h>
-#include <pbl/drivers/vibe/pwm.h>
 
 #ifdef CONFIG_QEMU_SERIAL
 extern const struct pbl_uart snowy_qemu_uart;
@@ -29,6 +28,5 @@ extern const struct pbl_uart snowy_bt_hci_port;
 
 extern const struct pbl_display_ice40lp snowy_display;
 extern const struct pbl_mag3110 snowy_mag;
-extern const struct pbl_vibe_pwm snowy_vibe;
 extern const struct pbl_als_stm32_adc snowy_als;
 extern const struct pbl_audio snowy_mic;

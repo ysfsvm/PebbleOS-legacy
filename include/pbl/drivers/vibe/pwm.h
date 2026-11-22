@@ -13,7 +13,7 @@
 /**
  * @defgroup drivers_vibe_pwm PWM motor
  * @ingroup drivers_vibe
- * @brief @ref drivers_vibe driver for a single-direction motor driven by a PWM output.
+ * @brief @ref drivers_vibe driver for a PWM motor, single-direction or on an H-bridge.
  *
  * @code{.c}
  * PBL_VIBE_PWM_DEFINE(s_vibe, false, .pwm = {...}, .vsys_scale = 3300);
@@ -61,5 +61,19 @@ extern const struct pbl_vibe_ops pbl_vibe_pwm_ops;
     __VA_ARGS__                                                                \
   };                                                                           \
   PBL_DEVICE_REGISTER(sym, &sym.vibe.dev)
+
+/**
+ * @brief Define a PWM vibration motor on an H-bridge.
+ *
+ * @param sym Symbol of the motor.
+ * @param _pwm PWM output, from PBL_PWM(), with the period to run it at.
+ * @param _ctl Enable output, from PBL_GPIO(), or unconnected.
+ */
+#define PBL_VIBE_PWM_HBRIDGE_DEFINE(sym, _pwm, _ctl)                                       \
+  PBL_VIBE_STATE_DEFINE(sym);                                                              \
+  PBL_DEVICE_INSTANCE(sym, struct pbl_vibe_pwm, struct pbl_vibe, vibe) {                   \
+    .vibe = PBL_VIBE_INIT(sym, "vibe_pwm", nullptr, &pbl_vibe_pwm_ops, VIBE_STRENGTH_MIN), \
+    .pwm = _pwm, .ctl = _ctl, .hbridge = true,                                             \
+  }
 
 /** @} */

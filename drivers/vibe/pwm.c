@@ -6,6 +6,7 @@
 //! strength does not change as the battery discharges. H-bridge (snowy): 50%
 //! is stopped and lower duty cycles run the motor in reverse, for braking.
 
+#include <pbl/devicetree.h>
 #include <pbl/drivers/pmic.h>
 #include <pbl/drivers/pwm.h>
 #include <pbl/drivers/vibe.h>
@@ -110,3 +111,5 @@ const struct pbl_vibe_ops pbl_vibe_pwm_ops = {
   .start = prv_start,
   .stop = prv_stop,
 };
+
+#include PBL_DT_INSTANCES(pebble_pwm_hbridge_vibrator)
