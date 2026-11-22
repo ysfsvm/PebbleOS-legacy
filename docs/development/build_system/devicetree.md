@@ -525,6 +525,11 @@ PBL_DEVICE_DEPENDS(dt_sensor, &dt_sensor.dev, &dt_ldo1.dev, &dt_gpio0.dev, &dt_r
                    &dt_timer1_pwm.dev);
 ```
 
+A node using a pin state also needs each GPIO bank of that pin controller that
+holds a `gpio-hog`, as Linux's pin controller applies the hogs of its banks
+when it probes: a pin can so be driven before any peripheral sets up its pins.
+Banks without one are not listed.
+
 The parent of a device is left out, as the instance macro names it, and so
 are the devices of the same node, of the nodes above it and of the nodes
 inside it: a multi-function device brings its functions up from its own init.
