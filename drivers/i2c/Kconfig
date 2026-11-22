@@ -48,11 +48,21 @@ config I2C_SHELL
       write device registers.
 
 config I2C_STM32
-    bool "ST STM32 I2C Controller"
-    default y if SOC_STM32F4
-    select HAL_STM32
+    bool "ST STM32F4 I2C Controller"
+    default DT_HAS_ST_STM32F4_I2C_ENABLED
+    depends on SOC_STM32F4
+    select CLK
+    select PINCTRL
+    select RESET
     help
-      Support for the STM32F4 I2C controller.
+      Support for the STM32F4 I2C controller (v1), in master mode.
+
+config I2C_STM32_IRQ_PRIO
+    int "Interrupt priority"
+    default 12
+    depends on I2C_STM32
+    help
+      Priority of the controller's event and error interrupts.
 
 module = DRIVER_I2C
 module-str = I2C

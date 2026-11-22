@@ -19,21 +19,19 @@
 #include <pbl/drivers/i2c/stm32.h>
 #include <pbl/drivers/imu/mag3110/mag3110.h>
 #include <pbl/drivers/mag.h>
+#include <pbl/drivers/pinctrl/stm32.h>
 #include <pbl/drivers/pmic/max14690.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/sem.h>
 #include <pbl/kernel/work.h>
-#include <pbl/soc/stm32/clock.h>
 #include <pbl/util/bits.h>
 #include <pbl/util/misc.h>
 
 #include <clar.h>
+#include <devicetree/devices.h>
+#include <hardware/stm32f4_i2c.h>
 #include <sys/time.h>
 
-#define PCLK1_HZ          32000000U
-#define PCLK1_HZ_FIRMWARE 24000000U
-
-static uint32_t s_pclk1_hz;
 static int s_irq_locks;
 static bool s_done;
 
@@ -134,6 +132,7 @@ uint32_t pbl_adc_stm32_to_mv(uint32_t vref_total, uint32_t vmon_total, uint32_t 
 
 #define RCC_BASE   0x40023800U
 #define GPIOB_BASE 0x40020400U
+#define I2C1_BASE  0x40005400U
 #define NUM_REGS   64
 
 #define RCC_APB1RSTR 0x20U
@@ -150,9 +149,21 @@ uint32_t pbl_adc_stm32_to_mv(uint32_t vref_total, uint32_t vmon_total, uint32_t 
 
 #define DR_IDLE 0x5a00U
 
-I2C_TypeDef fake_i2c[3];
+struct i2c_regs {
+  uint16_t CR1;
+  uint16_t CR2;
+  uint16_t OAR1;
+  uint16_t OAR2;
+  uint16_t DR;
+  uint16_t SR1;
+  uint16_t SR2;
+  uint16_t CCR;
+  uint16_t TRISE;
+  uint16_t FLTR;
+};
 
-static I2C_TypeDef *const s_regs_i2c1 = &fake_i2c[0];
+static struct i2c_regs s_i2c1_regs;
+static struct i2c_regs *const s_regs_i2c1 = &s_i2c1_regs;
 
 static struct {
   uintptr_t addr;
@@ -206,14 +217,14 @@ static bool prv_i2c1_clock(void) {
 
 static void prv_update_busy(void) {
   if (s_in_xfer || m.sda_held > 0 || m.busy_glitch) {
-    s_regs_i2c1->SR2 |= I2C_SR2_BUSY;
+    s_regs_i2c1->SR2 |= STM32F4_I2C_SR2_BUSY;
   } else {
-    s_regs_i2c1->SR2 &= ~I2C_SR2_BUSY;
+    s_regs_i2c1->SR2 &= ~STM32F4_I2C_SR2_BUSY;
   }
 }
 
 static void prv_i2c1_reset(void) {
-  *s_regs_i2c1 = (I2C_TypeDef){.DR = DR_IDLE};
+  *s_regs_i2c1 = (struct i2c_regs){.DR = DR_IDLE};
   s_phase = PH_IDLE;
   s_in_xfer = false;
   m.busy_glitch = false;
@@ -223,8 +234,7 @@ static void prv_i2c1_reset(void) {
 static void prv_regs_reset(void) {
   memset(s_regs, 0, sizeof(s_regs));
   s_num_regs = 0;
-  memset(fake_i2c, 0, sizeof(fake_i2c));
-  s_regs_i2c1->DR = DR_IDLE;
+  *s_regs_i2c1 = (struct i2c_regs){.DR = DR_IDLE};
   s_phase = PH_IDLE;
   s_in_xfer = false;
   s_rx_more = false;
@@ -300,7 +310,20 @@ static void prv_gpiob_write(uint32_t off, uint32_t val) {
   prv_bus_lines_update();
 }
 
+static uint16_t *prv_i2c1_reg(uintptr_t addr) {
+  if (addr < I2C1_BASE || addr >= I2C1_BASE + 0x400U) {
+    return NULL;
+  }
+  const uintptr_t off = addr - I2C1_BASE;
+  cl_assert(off % 4U == 0U && off <= STM32F4_I2C_FLTR_OFFSET);
+  return &((uint16_t *)s_regs_i2c1)[off / 4U];
+}
+
 uint32_t fake_mmio_readl(uintptr_t addr) {
+  uint16_t *i2c_reg = prv_i2c1_reg(addr);
+  if (i2c_reg != NULL) {
+    return *i2c_reg;
+  }
   if (addr == GPIOB_BASE + GPIO_IDR) {
     bool level;
     uint32_t idr = PBL_BIT(SCL_PIN);
@@ -314,6 +337,11 @@ uint32_t fake_mmio_readl(uintptr_t addr) {
 }
 
 void fake_mmio_writel(uint32_t val, uintptr_t addr) {
+  uint16_t *i2c_reg = prv_i2c1_reg(addr);
+  if (i2c_reg != NULL) {
+    *i2c_reg = (uint16_t)val;
+    return;
+  }
   if (addr >= RCC_BASE && addr < RCC_BASE + 0x400U) {
     prv_rcc_write(addr - RCC_BASE, val);
     return;
@@ -326,7 +354,7 @@ void fake_mmio_writel(uint32_t val, uintptr_t addr) {
 }
 
 static void prv_trace_regs(void) {
-  const I2C_TypeDef *r = s_regs_i2c1;
+  const struct i2c_regs *r = s_regs_i2c1;
   m_trace("I2C1 CR1 %04x CR2 %04x OAR1 %04x CCR %04x TRISE %04x FLTR %04x", r->CR1, r->CR2, r->OAR1,
           r->CCR, r->TRISE, r->FLTR);
   m_trace("GPIOB MODER %08x OTYPER %08x OSPEEDR %08x PUPDR %08x", *prv_reg(GPIOB_BASE + 0x00U),
@@ -343,10 +371,10 @@ static void prv_trace_regs(void) {
 static bool s_dump_regs;
 
 static void prv_observe(void) {
-  I2C_TypeDef *r = s_regs_i2c1;
+  struct i2c_regs *r = s_regs_i2c1;
 
-  if ((r->CR1 & I2C_CR1_STOP) != 0U) {
-    r->CR1 &= ~I2C_CR1_STOP;
+  if ((r->CR1 & STM32F4_I2C_CR1_STOP) != 0U) {
+    r->CR1 &= ~STM32F4_I2C_CR1_STOP;
     if (s_in_xfer) {
       m_stop();
     }
@@ -355,20 +383,20 @@ static void prv_observe(void) {
     r->SR1 = 0U;
     r->SR2 = 0U;
   }
-  if ((r->CR1 & I2C_CR1_START) != 0U) {
-    if ((r->CR1 & I2C_CR1_PE) == 0U || !prv_i2c1_clock()) {
+  if ((r->CR1 & STM32F4_I2C_CR1_START) != 0U) {
+    if ((r->CR1 & STM32F4_I2C_CR1_PE) == 0U || !prv_i2c1_clock()) {
       m_violation("start with CR1 %04x clock %d", r->CR1, prv_i2c1_clock());
     }
     if (s_dump_regs) {
       s_dump_regs = false;
       prv_trace_regs();
     }
-    r->CR1 &= ~I2C_CR1_START;
+    r->CR1 &= ~STM32F4_I2C_CR1_START;
     m_start(s_in_xfer);
     s_in_xfer = true;
     s_phase = PH_SB;
-    r->SR1 = I2C_SR1_SB;
-    r->SR2 = I2C_SR2_MSL;
+    r->SR1 = STM32F4_I2C_SR1_SB;
+    r->SR2 = STM32F4_I2C_SR2_MSL;
     r->DR = DR_IDLE;
   }
   if (s_phase == PH_IDLE) {
@@ -383,15 +411,15 @@ static void prv_observe(void) {
         s_phase = PH_ADDR;
       } else if (m_address(byte)) {
         s_phase = PH_ADDR;
-        r->SR1 = I2C_SR1_ADDR | (m.read ? 0U : I2C_SR1_TXE);
-        r->SR2 |= m.read ? 0U : I2C_SR2_TRA;
+        r->SR1 = STM32F4_I2C_SR1_ADDR | (m.read ? 0U : STM32F4_I2C_SR1_TXE);
+        r->SR2 |= m.read ? 0U : STM32F4_I2C_SR2_TRA;
         s_rx_more = m.read;
       } else {
-        r->SR1 = I2C_SR1_AF;
+        r->SR1 = STM32F4_I2C_SR1_AF;
         s_phase = PH_ADDR;
       }
     } else if (s_phase == PH_TX) {
-      r->SR1 = m_write(byte) ? I2C_SR1_TXE : I2C_SR1_AF;
+      r->SR1 = m_write(byte) ? STM32F4_I2C_SR1_TXE : STM32F4_I2C_SR1_AF;
     } else {
       m_violation("DR write %02x in phase %d", byte, s_phase);
     }
@@ -401,62 +429,64 @@ static void prv_observe(void) {
 
 //! The handler read SR1 and SR2, clearing ADDR, and read DR, clearing RXNE.
 static void prv_after_ev(bool had_rxne) {
-  I2C_TypeDef *r = s_regs_i2c1;
+  struct i2c_regs *r = s_regs_i2c1;
 
-  if (s_phase == PH_ADDR && (r->SR1 & I2C_SR1_ADDR) != 0U) {
-    r->SR1 &= ~I2C_SR1_ADDR;
+  if (s_phase == PH_ADDR && (r->SR1 & STM32F4_I2C_SR1_ADDR) != 0U) {
+    r->SR1 &= ~STM32F4_I2C_SR1_ADDR;
     s_phase = m.read ? PH_RX : PH_TX;
   }
   if (s_phase == PH_RX && had_rxne) {
-    r->SR1 &= ~I2C_SR1_RXNE;
+    r->SR1 &= ~STM32F4_I2C_SR1_RXNE;
     r->DR = DR_IDLE;
   }
 }
 
 static bool prv_ev_pending(void) {
-  const I2C_TypeDef *r = s_regs_i2c1;
-  if ((r->CR2 & I2C_CR2_ITEVTEN) == 0U) {
+  const struct i2c_regs *r = s_regs_i2c1;
+  if ((r->CR2 & STM32F4_I2C_CR2_ITEVTEN) == 0U) {
     return false;
   }
-  return (r->SR1 & (I2C_SR1_SB | I2C_SR1_ADDR | I2C_SR1_BTF | I2C_SR1_STOPF)) != 0U ||
-         ((r->CR2 & I2C_CR2_ITBUFEN) != 0U && (r->SR1 & (I2C_SR1_TXE | I2C_SR1_RXNE)) != 0U);
+  return (r->SR1 & (STM32F4_I2C_SR1_SB | STM32F4_I2C_SR1_ADDR | STM32F4_I2C_SR1_BTF |
+                    STM32F4_I2C_SR1_STOPF)) != 0U ||
+         ((r->CR2 & STM32F4_I2C_CR2_ITBUFEN) != 0U &&
+          (r->SR1 & (STM32F4_I2C_SR1_TXE | STM32F4_I2C_SR1_RXNE)) != 0U);
 }
 
 static bool prv_er_pending(void) {
-  const I2C_TypeDef *r = s_regs_i2c1;
-  return (r->CR2 & I2C_CR2_ITERREN) != 0U &&
-         (r->SR1 & (I2C_SR1_AF | I2C_SR1_BERR | I2C_SR1_ARLO | I2C_SR1_OVR)) != 0U;
+  const struct i2c_regs *r = s_regs_i2c1;
+  return (r->CR2 & STM32F4_I2C_CR2_ITERREN) != 0U &&
+         (r->SR1 & (STM32F4_I2C_SR1_AF | STM32F4_I2C_SR1_BERR | STM32F4_I2C_SR1_ARLO |
+                    STM32F4_I2C_SR1_OVR)) != 0U;
 }
 
 static bool prv_advance(void) {
-  I2C_TypeDef *r = s_regs_i2c1;
+  struct i2c_regs *r = s_regs_i2c1;
 
-  if (s_phase == PH_TX && (r->SR1 & I2C_SR1_TXE) != 0U && (r->SR1 & I2C_SR1_BTF) == 0U &&
-      (r->CR2 & I2C_CR2_ITBUFEN) == 0U) {
-    r->SR1 |= I2C_SR1_BTF;
+  if (s_phase == PH_TX && (r->SR1 & STM32F4_I2C_SR1_TXE) != 0U &&
+      (r->SR1 & STM32F4_I2C_SR1_BTF) == 0U && (r->CR2 & STM32F4_I2C_CR2_ITBUFEN) == 0U) {
+    r->SR1 |= STM32F4_I2C_SR1_BTF;
     return true;
   }
-  if (s_phase == PH_RX && (r->SR1 & I2C_SR1_RXNE) == 0U && s_rx_more) {
-    const bool ack = (r->CR1 & I2C_CR1_ACK) != 0U;
+  if (s_phase == PH_RX && (r->SR1 & STM32F4_I2C_SR1_RXNE) == 0U && s_rx_more) {
+    const bool ack = (r->CR1 & STM32F4_I2C_CR1_ACK) != 0U;
     r->DR = m_read(ack);
-    r->SR1 |= I2C_SR1_RXNE;
+    r->SR1 |= STM32F4_I2C_SR1_RXNE;
     s_rx_more = ack;
     return true;
   }
   return false;
 }
 
-PBL_I2C_STM32_DEFINE(s_i2c1, "i2c1", I2C1, RCC_APB1Periph_I2C1, 400000, PBL_GPIO(STM32_GPIOB, 6, 0),
-                     GPIO_AF_I2C1, PBL_GPIO(STM32_GPIOB, 9, 0), GPIO_AF_I2C1, nullptr);
+extern const struct pbl_i2c_stm32 dt_i2c1_inst;
 
-static const struct pbl_i2c_dev s_pmic_i2c = PBL_I2C_DEV(&s_i2c1.bus, 0x28);
-static const struct pbl_i2c_dev s_mag_i2c = PBL_I2C_DEV(&s_i2c1.bus, 0x0e);
+static const struct pbl_i2c_dev s_pmic_i2c = PBL_I2C_DEV(&dt_i2c1, 0x28);
+static const struct pbl_i2c_dev s_mag_i2c = PBL_I2C_DEV(&dt_i2c1, 0x0e);
 
-PBL_MAX14690_DEFINE(s_max14690, &s_i2c1.bus, &s_pmic_i2c, .int_gpio = PBL_GPIO(STM32_GPIOG, 7, 0),
+PBL_MAX14690_DEFINE(s_max14690, &dt_i2c1, &s_pmic_i2c, .int_gpio = PBL_GPIO(STM32_GPIOG, 7, 0),
                     .mon_adc_channel = 1, .mon_adc_pin = PBL_GPIO(STM32_GPIOG, 0, 0));
 const struct pbl_max14690 *const MAX14690 = &s_max14690;
 
-PBL_MAG3110_DEFINE(s_mag, &s_i2c1.bus, 0x0e, .int_gpio = PBL_GPIO(STM32_GPIOF, 14, 0),
+PBL_MAG3110_DEFINE(s_mag, &dt_i2c1, 0x0e, .int_gpio = PBL_GPIO(STM32_GPIOF, 14, 0),
                    .axis_map = {1, 0, 2}, .axis_dir = {-1, -1, 1});
 
 #include "../../../drivers/pmic/max14690.c"
@@ -469,12 +499,12 @@ static int prv_pump(void) {
       return 0;
     }
     if (prv_er_pending()) {
-      pbl_i2c_stm32_er_irq_handler(&s_i2c1);
+      pbl_i2c_stm32_er_irq_handler(&dt_i2c1_inst);
       continue;
     }
     if (prv_ev_pending()) {
-      const bool had_rxne = (s_regs_i2c1->SR1 & I2C_SR1_RXNE) != 0U;
-      pbl_i2c_stm32_ev_irq_handler(&s_i2c1);
+      const bool had_rxne = (s_regs_i2c1->SR1 & STM32F4_I2C_SR1_RXNE) != 0U;
+      pbl_i2c_stm32_ev_irq_handler(&dt_i2c1_inst);
       prv_after_ev(had_rxne);
       continue;
     }
@@ -484,28 +514,6 @@ static int prv_pump(void) {
   }
   m_violation("transfer without end");
   return -EAGAIN;
-}
-
-// Standard Peripheral Library, on I2C1 registers in memory
-////////////////////////////////////////////////////////////////////////////////
-
-void soc_stm32_clock_set(enum soc_stm32_bus bus, uint32_t mask, bool enable) {
-  cl_assert_equal_i(bus, SOC_STM32_APB1);
-  const uint32_t enr = *prv_reg(RCC_BASE + RCC_APB1ENR);
-  prv_rcc_write(RCC_APB1ENR, enable ? (enr | mask) : (enr & ~mask));
-}
-
-void RCC_APB1PeriphResetCmd(uint32_t periph, FunctionalState state) {
-  const uint32_t rstr = *prv_reg(RCC_BASE + RCC_APB1RSTR);
-  prv_rcc_write(RCC_APB1RSTR, state != DISABLE ? (rstr | periph) : (rstr & ~periph));
-}
-
-void RCC_GetClocksFreq(RCC_ClocksTypeDef *clocks) {
-  const uint32_t sysclk = s_pclk1_hz == PCLK1_HZ_FIRMWARE ? 4U * s_pclk1_hz : 2U * s_pclk1_hz;
-  clocks->SYSCLK_Frequency = sysclk;
-  clocks->HCLK_Frequency = sysclk;
-  clocks->PCLK1_Frequency = s_pclk1_hz;
-  clocks->PCLK2_Frequency = s_pclk1_hz == PCLK1_HZ_FIRMWARE ? sysclk / 2U : sysclk;
 }
 
 static void prv_dump_trace(const char *name, const char *trace) {
@@ -539,7 +547,7 @@ static void prv_alarm(int sig) {
 }
 
 static void prv_bus_init(void) {
-  cl_assert_equal_i(pbl_device_init(&s_i2c1.bus.dev), 0);
+  cl_assert_equal_i(pbl_device_init(&dt_i2c1.dev), 0);
 }
 
 static void prv_pmic_init(void) {
@@ -547,7 +555,6 @@ static void prv_pmic_init(void) {
 }
 
 void test_i2c_stm32__initialize(void) {
-  s_pclk1_hz = PCLK1_HZ;
   m_devices_reset();
   prv_regs_reset();
   s_irq_locks = 0;
@@ -555,10 +562,10 @@ void test_i2c_stm32__initialize(void) {
   s_dump_regs = false;
   s_trace_on = false;
   s_present = false;
-  const struct pbl_device *devs[] = {&dt_rcc.dev,        &dt_gpiob.dev,      &dt_gpiof.dev,
-                                     &dt_gpiog.dev,      &dt_gpiob_intc.dev, &dt_gpiof_intc.dev,
-                                     &dt_gpiog_intc.dev, &s_i2c1.bus.dev,    &s_max14690.dev,
-                                     &s_mag.mag.dev};
+  const struct pbl_device *devs[] = {&dt_rcc.dev,        &dt_rcc_reset.dev,  &dt_gpiob.dev,
+                                     &dt_gpiof.dev,      &dt_gpiog.dev,      &dt_gpiob_intc.dev,
+                                     &dt_gpiof_intc.dev, &dt_gpiog_intc.dev, &dt_i2c1.dev,
+                                     &s_max14690.dev,    &s_mag.mag.dev};
   for (size_t i = 0; i < ARRAY_LENGTH(devs); i++) {
     *devs[i]->state = (struct pbl_device_state){0};
   }
@@ -583,7 +590,7 @@ void test_i2c_stm32__cleanup(void) {
   cl_assert_equal_s(m.violation, "");
   cl_assert_equal_i(m.violations, 0);
   cl_assert_equal_i(s_irq_locks, 0);
-  cl_assert(!s_i2c1.state->stop_blocked);
+  cl_assert(!dt_i2c1_inst.state->stop_blocked);
 }
 
 void test_i2c_stm32__bus_init(void) {
@@ -602,7 +609,6 @@ void test_i2c_stm32__pmic_boot(void) {
 }
 
 void test_i2c_stm32__pmic_boot_apb1_24mhz(void) {
-  s_pclk1_hz = PCLK1_HZ_FIRMWARE;
   *prv_reg(RCC_BASE + 0x04U) = (4U << 24) | (192U << 6) | 16U;
   *prv_reg(RCC_BASE + 0x08U) = (4U << 13) | (5U << 10) | (2U << 2) | 2U;
   s_dump_regs = true;
@@ -669,8 +675,8 @@ void test_i2c_stm32__pmic_power_off(void) {
   }
   m_trace("powered off");
   CHECK_TRACE(TRACE_PMIC_POWER_OFF);
-  *s_i2c1.bus.state = (struct pbl_i2c_bus_state){0};
-  s_i2c1.state->stop_blocked = false;
+  *dt_i2c1.state = (struct pbl_i2c_bus_state){0};
+  dt_i2c1_inst.state->stop_blocked = false;
   s_irq_locks = 0;
 }
 

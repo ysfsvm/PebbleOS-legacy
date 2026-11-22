@@ -143,6 +143,16 @@
 	};
 };
 
+// PMIC and compass, defined in snowy.c
+&i2c1 {
+	pinctrl-0 = <&i2c1_default>;
+	pinctrl-names = "default";
+	scl-gpios = <&gpiob 6 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <&gpiob 9 GPIO_ACTIVE_HIGH>;
+	clock-frequency = <400000>;
+	status = "okay";
+};
+
 // CC2564 HCI, driven by the legacy HCI transport
 &usart1 {
 	pinctrl-0 = <&usart1_default>;

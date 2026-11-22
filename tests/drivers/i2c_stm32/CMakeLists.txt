@@ -12,19 +12,22 @@ pbl_clar_test(test_i2c_stm32
     drivers/i2c/i2c.c
     drivers/i2c/stm32.c
     drivers/imu/mag3110/mag3110.c
-    third_party/hal_stm32/stm32-sdk/STM32F4xx_StdPeriph_Driver/src/stm32f4xx_i2c.c
+    drivers/pinctrl/pinctrl.c
+    drivers/pinctrl/stm32.c
+    drivers/reset/reset.c
+    drivers/reset/stm32f4.c
   OVERRIDES
     stm32f4_mmio
   INCLUDES
     tests/drivers/i2c_stm32/include
     soc/stm32/stm32f4
-    third_party/hal_stm32/stm32-sdk/STM32F4xx_StdPeriph_Driver/inc
   DEFINES
     PBL_NO_LINKER_SCRIPT
     CONFIG_DEVICE_LOG_LEVEL=0
     CONFIG_DRIVER_I2C_LOG_LEVEL=0
     CONFIG_DRIVER_IMU_LOG_LEVEL=0
     CONFIG_DRIVER_PMIC_LOG_LEVEL=0
+    CONFIG_I2C_STM32_IRQ_PRIO=12
     CONFIG_SOC_STM32F4=1
     PBL_SOC_IRQN_EXTI0=6
     PBL_SOC_IRQN_EXTI1=7

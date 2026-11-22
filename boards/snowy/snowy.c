@@ -12,7 +12,6 @@
 #include <pbl/drivers/backlight/pwm.h>
 #include <pbl/drivers/clk/stm32f4.h>
 #include <pbl/drivers/dma/stm32f4.h>
-#include <pbl/drivers/i2c/stm32.h>
 #include <pbl/drivers/pmic/max14690.h>
 #include <pbl/drivers/pwm/stm32.h>
 #include <pbl/drivers/uart/stm32.h>
@@ -95,15 +94,10 @@ PBL_DISPLAY_ICE40LP_DEFINE(snowy_display, "display", CONFIG_PLATFORM_DISPLAY_WID
 // I2C1: PMIC and compass
 ///////////////////////////////////////////////////////////////////////////////
 
-PBL_I2C_STM32_DEFINE(s_i2c1, "i2c1", I2C1, RCC_APB1Periph_I2C1, 400000, PBL_GPIO(STM32_GPIOB, 6, 0),
-                     GPIO_AF_I2C1, PBL_GPIO(STM32_GPIOB, 9, 0), GPIO_AF_I2C1, nullptr);
-PBL_IRQ_CONNECT(I2C1_EV, 12, pbl_i2c_stm32_ev_irq_handler, &s_i2c1, 0);
-PBL_IRQ_CONNECT(I2C1_ER, 12, pbl_i2c_stm32_er_irq_handler, &s_i2c1, 0);
-
-static const struct pbl_i2c_dev I2C_SLAVE_MAX14690 = PBL_I2C_DEV(&s_i2c1.bus, 0x28);
+static const struct pbl_i2c_dev I2C_SLAVE_MAX14690 = PBL_I2C_DEV(&dt_i2c1, 0x28);
 
 // Compass: MAG3110, data ready active high on PF14
-PBL_MAG3110_DEFINE(snowy_mag, &s_i2c1.bus, 0x0e, .int_gpio = PBL_GPIO(STM32_GPIOF, 14, 0),
+PBL_MAG3110_DEFINE(snowy_mag, &dt_i2c1, 0x0e, .int_gpio = PBL_GPIO(STM32_GPIOF, 14, 0),
 #ifdef CONFIG_BOARD_SPALDING
                    .axis_map = {0, 1, 2}, .axis_dir = {1, -1, 1});
 #else
@@ -114,7 +108,7 @@ PBL_MAG3110_DEFINE(snowy_mag, &s_i2c1.bus, 0x0e, .int_gpio = PBL_GPIO(STM32_GPIO
 ///////////////////////////////////////////////////////////////////////////////
 
 // MON output on ADC channel 1 (PA1)
-PBL_MAX14690_DEFINE(s_max14690, &s_i2c1.bus, &I2C_SLAVE_MAX14690,
+PBL_MAX14690_DEFINE(s_max14690, &dt_i2c1, &I2C_SLAVE_MAX14690,
                     .int_gpio = PBL_GPIO(STM32_GPIOG, 7, 0), .mon_adc_channel = ADC_Channel_1,
                     .mon_adc_pin = PBL_GPIO(STM32_GPIOA, 1, 0));
 const struct pbl_max14690 *const MAX14690 = &s_max14690;
