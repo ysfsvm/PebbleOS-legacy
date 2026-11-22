@@ -10,7 +10,6 @@
 #include <pbl/drivers/audio.h>
 #include <pbl/drivers/backlight.h>
 #include <pbl/drivers/display/ice40lp.h>
-#include <pbl/drivers/imu/bmi160/bmi160.h>
 #include <pbl/drivers/imu/mag3110/mag3110.h>
 #include <pbl/drivers/uart.h>
 #include <pbl/drivers/vibe/pwm.h>
@@ -34,5 +33,4 @@ extern const struct pbl_backlight snowy_backlight;
 extern const struct pbl_mag3110 snowy_mag;
 extern const struct pbl_vibe_pwm snowy_vibe;
 extern const struct pbl_als_stm32_adc snowy_als;
-extern const struct pbl_bmi160 snowy_accel;
 extern const struct pbl_audio snowy_mic;

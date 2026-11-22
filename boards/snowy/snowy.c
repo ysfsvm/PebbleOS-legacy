@@ -179,11 +179,6 @@ static const struct pbl_als_scale s_als_scale = {
 PBL_ALS_STM32_ADC_DEFINE(snowy_als, &s_als_scale, .enable = PBL_GPIO(STM32_GPIOA, 3, 0),
                          .channel = ADC_Channel_2, .pin = PBL_GPIO(STM32_GPIOA, 2, 0));
 
-// Accelerometer: BMI160 on SPI, see BOARD_CONFIG_ACCEL
-///////////////////////////////////////////////////////////////////////////////
-
-PBL_BMI160_DEFINE(snowy_accel);
-
 // Microphone: I2S on SPI2
 ///////////////////////////////////////////////////////////////////////////////
 

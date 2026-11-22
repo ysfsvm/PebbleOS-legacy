@@ -15,12 +15,11 @@
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/work.h>
 #include <pbl/soc/stm32/board.h>
-#include <pbl/soc/stm32/clock.h>
 #include <pbl/util/bits.h>
-
-#include <dt-bindings/mfd/stm32f4-rcc.h>
+#include <pbl/util/misc.h>
 
 #include <clar.h>
+#include <dt-bindings/mfd/stm32f4-rcc.h>
 
 static const BoardConfigAccel BOARD_CONFIG_ACCEL = {
   .accel_config =
@@ -101,7 +100,9 @@ static void prv_run_work(void) {
 }
 
 int pbl_accel_dev_init(const struct pbl_device *dev) {
-  return 0;
+  const struct pbl_accel *accel = container_of(dev, const struct pbl_accel, dev);
+
+  return accel->ops->init(accel);
 }
 
 void pbl_accel_lock(const struct pbl_accel *accel) {
@@ -112,7 +113,7 @@ void pbl_accel_unlock(const struct pbl_accel *accel) {
 
 void pbl_accel_report_sample(const struct pbl_accel *accel, const AccelDriverSample *sample) {
   m_report("sample %d %d %d %llu", sample->x, sample->y, sample->z,
-          (unsigned long long)sample->timestamp_us);
+           (unsigned long long)sample->timestamp_us);
 }
 
 void pbl_accel_report_event(const struct pbl_accel *accel, const struct pbl_accel_event *event) {
@@ -134,15 +135,15 @@ void pbl_accel_report_event(const struct pbl_accel *accel, const struct pbl_acce
 #define GPIO_ODR   0x14U
 #define GPIO_BSRR  0x18U
 
-#define SPI_CR1  0x00U
-#define SPI_SR   0x08U
-#define SPI_DR   0x0cU
-#define SPI_SR_RXNE 0x0001U
-#define SPI_SR_TXE  0x0002U
+#define SPI_CR1      0x00U
+#define SPI_SR       0x08U
+#define SPI_DR       0x0cU
+#define SPI_SR_RXNE  0x0001U
+#define SPI_SR_TXE   0x0002U
 #define SPI_CR1_MSTR 0x0004U
+#define SPI_CR1_SPE  0x0040U
 
-SPI_TypeDef fake_spi[6];
-RCC_TypeDef fake_rcc;
+static SPI_TypeDef s_spi1;
 
 static struct {
   uintptr_t addr;
@@ -163,7 +164,7 @@ static uint32_t prv_reset_value(uintptr_t addr) {
     case GPIOA_BASE + 0x0cU:
       return 0x64000000U;
     case RCC_BASE + 0x04U:
-      return (2U << 16) | (128U << 6) | 16U;
+      return (128U << 6) | 16U;
     case RCC_BASE + 0x08U:
       return 2U << 2;
     default:
@@ -184,16 +185,21 @@ static uint32_t *prv_reg(uintptr_t addr) {
 }
 
 static void prv_spi1_reset(void) {
-  fake_spi[0] = (SPI_TypeDef){.SR = SPI_SR_TXE, .CRCPR = 7, .I2SPR = 2};
+  s_spi1 = (SPI_TypeDef){.SR = SPI_SR_TXE, .CRCPR = 7, .I2SPR = 2};
   s_rx_pending = false;
 }
 
 static void prv_regs_reset(void) {
   memset(s_regs, 0, sizeof(s_regs));
   s_num_regs = 0;
-  memset(fake_spi, 0, sizeof(fake_spi));
-  fake_spi[0] = (SPI_TypeDef){
-    .CR1 = 0x5a5a, .CR2 = 0x00e7, .SR = SPI_SR_TXE, .CRCPR = 0x1234, .I2SCFGR = 0x0f3f, .I2SPR = 2};
+  s_spi1 = (SPI_TypeDef){
+    .CR1 = 0x5a5a,
+    .CR2 = 0x00e7,
+    .SR = SPI_SR_TXE,
+    .CRCPR = 0x1234,
+    .I2SCFGR = 0x0f3f,
+    .I2SPR = 2
+  };
   s_cs_low = false;
   s_rx_pending = false;
   s_int_level[0] = false;
@@ -260,7 +266,7 @@ static void prv_gpioa_write(uint32_t off, uint32_t val) {
 }
 
 static void prv_spi_send(uint16_t val) {
-  const uint16_t cr1 = fake_spi[0].CR1;
+  const uint16_t cr1 = s_spi1.CR1;
   if (!prv_spi1_clock() || (cr1 & SPI_CR1_SPE) == 0U || (cr1 & SPI_CR1_MSTR) == 0U) {
     m_violation("SPI1 byte %02x with clock %d CR1 %04x", val, prv_spi1_clock(), cr1);
   }
@@ -292,7 +298,7 @@ uint32_t fake_mmio_readl(uintptr_t addr) {
     if (off == SPI_SR) {
       return prv_spi_sr();
     }
-    return ((volatile uint16_t *)&fake_spi[0])[off / 2U];
+    return ((volatile uint16_t *)&s_spi1)[off / 2U];
   }
   if (addr == GPIOG_BASE + GPIO_IDR) {
     return (s_int_level[0] ? PBL_BIT(5) : 0U) | (s_int_level[1] ? PBL_BIT(6) : 0U);
@@ -306,7 +312,7 @@ void fake_mmio_writel(uint32_t val, uintptr_t addr) {
     if (off == SPI_DR) {
       prv_spi_send((uint16_t)val);
     } else if (off != SPI_SR) {
-      ((volatile uint16_t *)&fake_spi[0])[off / 2U] = (uint16_t)val;
+      ((volatile uint16_t *)&s_spi1)[off / 2U] = (uint16_t)val;
     }
     return;
   }
@@ -322,7 +328,7 @@ void fake_mmio_writel(uint32_t val, uintptr_t addr) {
 }
 
 static void prv_trace_regs(void) {
-  const SPI_TypeDef *spi = &fake_spi[0];
+  const SPI_TypeDef *spi = &s_spi1;
   m_trace("SPI1 CR1 %04x CR2 %04x CRCPR %04x I2SCFGR %04x I2SPR %04x", spi->CR1, spi->CR2,
           spi->CRCPR, spi->I2SCFGR, spi->I2SPR);
   m_trace("GPIOA MODER %08x OTYPER %08x OSPEEDR %08x PUPDR %08x", *prv_reg(GPIOA_BASE + 0x00U),
@@ -337,69 +343,10 @@ static void prv_trace_regs(void) {
           *prv_reg(RCC_BASE + RCC_APB2RSTR));
 }
 
-// Standard Peripheral Library, on SPI1 registers in memory
-////////////////////////////////////////////////////////////////////////////////
-
-void soc_stm32_clock_set(enum soc_stm32_bus bus, uint32_t mask, bool enable) {
-  cl_assert_equal_i(bus, SOC_STM32_APB2);
-  const uint32_t enr = *prv_reg(RCC_BASE + RCC_APB2ENR);
-  prv_rcc_write(RCC_APB2ENR, enable ? (enr | mask) : (enr & ~mask));
-}
-
-void RCC_APB2PeriphResetCmd(uint32_t periph, FunctionalState state) {
-  const uint32_t rstr = *prv_reg(RCC_BASE + RCC_APB2RSTR);
-  prv_rcc_write(RCC_APB2RSTR, state != DISABLE ? (rstr | periph) : (rstr & ~periph));
-}
-
-void RCC_APB1PeriphResetCmd(uint32_t periph, FunctionalState state) {
-  cl_fail("APB1 reset");
-}
-
-void RCC_GetClocksFreq(RCC_ClocksTypeDef *clocks) {
-  clocks->SYSCLK_Frequency = PCLK2_HZ;
-  clocks->HCLK_Frequency = PCLK2_HZ;
-  clocks->PCLK1_Frequency = PCLK2_HZ / 2U;
-  clocks->PCLK2_Frequency = PCLK2_HZ;
-}
-
-void RCC_I2SCLKConfig(uint32_t source) {
-  cl_fail("I2S");
-}
-
-void RCC_PLLI2SCmd(FunctionalState state) {
-  cl_fail("I2S");
-}
-
-FlagStatus RCC_GetFlagStatus(uint8_t flag) {
-  cl_fail("I2S");
-  return RESET;
-}
-
-#undef SPI_I2S_SendData
-#undef SPI_I2S_ReceiveData
-#undef SPI_I2S_GetFlagStatus
-
-void SPI_I2S_SendData(SPI_TypeDef *spi, uint16_t data) {
-  cl_assert(spi == SPI1);
-  prv_spi_send(data);
-}
-
-uint16_t SPI_I2S_ReceiveData(SPI_TypeDef *spi) {
-  cl_assert(spi == SPI1);
-  return prv_spi_receive();
-}
-
-FlagStatus SPI_I2S_GetFlagStatus(SPI_TypeDef *spi, uint16_t flag) {
-  cl_assert(spi == SPI1);
-  return (prv_spi_sr() & flag) != 0U ? SET : RESET;
-}
-
 #include "../../../drivers/imu/bmi160/bmi160.c"
 #include "../../../drivers/imu/bmi160/bmi160_spi.c"
 
-PBL_BMI160_DEFINE(s_bmi160);
-
-static const struct pbl_accel *const s_accel = &s_bmi160.accel;
+static const struct pbl_accel *const s_accel = &dt_accel;
 
 static void prv_dump_trace(const char *name, const char *trace) {
   const char *path = getenv("BMI160_TRACE_OUT");
@@ -450,8 +397,9 @@ static void prv_driver_reset(void) {
 }
 
 static void prv_devices_reset(void) {
-  const struct pbl_device *devs[] = {&dt_rcc.dev,      &dt_gpioa.dev,      &dt_gpiog.dev,
-                                     &dt_gpioa_intc.dev, &dt_gpiog_intc.dev, &s_bmi160.accel.dev};
+  const struct pbl_device *devs[] = {&dt_rcc.dev,        &dt_rcc_reset.dev, &pbl_pinctrl_stm32.dev,
+                                     &dt_gpioa.dev,      &dt_gpiog.dev,     &dt_gpioa_intc.dev,
+                                     &dt_gpiog_intc.dev, &dt_spi1.dev,      &dt_accel.dev};
   for (size_t i = 0; i < ARRAY_LENGTH(devs); i++) {
     *devs[i]->state = (struct pbl_device_state){0};
   }
@@ -462,7 +410,7 @@ static void prv_devices_reset(void) {
 }
 
 static void prv_accel_init(void) {
-  cl_assert_equal_i(pbl_bmi160_ops.init(s_accel), 0);
+  cl_assert_equal_i(pbl_device_init(&s_accel->dev), 0);
 }
 
 static void prv_set_status(uint8_t reg, uint8_t val) {
@@ -505,7 +453,7 @@ void test_bmi160__init(void) {
 void test_bmi160__init_without_chip(void) {
   m_power_on(false);
   m_trace_start();
-  cl_assert_equal_i(pbl_bmi160_ops.init(s_accel), -ENODEV);
+  cl_assert_equal_i(pbl_device_init(&s_accel->dev), -ENODEV);
   prv_trace_regs();
   CHECK_TRACE(TRACE_INIT_ABSENT);
   s_dev = NULL;
