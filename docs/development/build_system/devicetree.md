@@ -455,6 +455,7 @@ with these options:
 | `up: true` | Read from the parent, for a function of a block |
 | `wrap`, `field`, `as`, `item` | Wrap the value in a macro, make it a designated initializer, take another kind from a provider, format list items |
 | `values` | For `string`, the C of each value the property may take |
+| `depends: false` | Leave the provider out of the devices initialized first, for a driver that brings it up from its own init after something else, as a motor its PWM controller after the enable output; see [](#devicetree-init-order) |
 
 A spec with `ids` maps the IDs a binding defines to the numbers of the driver,
 by the prefix of their names in two headers: the binding's, and one of the
@@ -527,6 +528,10 @@ PBL_DEVICE_DEPENDS(dt_sensor, &dt_sensor.dev, &dt_ldo1.dev, &dt_gpio0.dev, &dt_r
 The parent of a device is left out, as the instance macro names it, and so
 are the devices of the same node, of the nodes above it and of the nodes
 inside it: a multi-function device brings its functions up from its own init.
+A provider given with `depends: false` is left out too: the driver's init
+calls `pbl_device_init()` on it when its turn comes. Nothing then keeps the
+boot walk from bringing that provider up earlier, at its own entry in the
+device table.
 Devices that need each other fail the build.
 
 ## Using devices
