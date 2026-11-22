@@ -1999,10 +1999,63 @@ done:
   return (E_INTERNAL);
 }
 
+#ifdef CONFIG_FS_PFS_FORMAT_SECTOR_PAGES
+static_assert(PFS_PAGES_PER_ERASE_SECTOR > 1, "Pages must be smaller than the erase sector");
+
+static bool prv_is_page_header(const PageHeader *hdr) {
+  static const uint8_t erased_rsvd0[sizeof(hdr->rsvd0)] = {0xff, 0xff, 0xff, 0xff};
+
+  if (hdr->version != PFS_CUR_VERSION) {
+    return false;
+  }
+
+  // Erased headers carry no CRC
+  if (page_is_erased(hdr->page_flags)) {
+    return memcmp(hdr->rsvd0, erased_rsvd0, sizeof(erased_rsvd0)) == 0;
+  }
+
+  PageHeader crc_hdr = *hdr;
+  if (compute_pg_header_crc(&crc_hdr) == hdr->hdr_crc) {
+    return true;
+  }
+
+  // Deleted after its CRC was written
+  crc_hdr.page_flags |= PAGE_FLAG_DELETED_PAGE;
+  return compute_pg_header_crc(&crc_hdr) == hdr->hdr_crc;
+}
+
+static bool prv_written_with_sector_pages(void) {
+  bool found = false;
+
+  for (uint32_t offs = 0U; offs < PART_FILESYSTEM_SIZE; offs += PFS_PAGE_SIZE) {
+    PageHeader hdr;
+    pbl_flash_partition_read(PART_FILESYSTEM, offs, &hdr, sizeof(hdr));
+    if (!prv_is_page_header(&hdr)) {
+      continue;
+    }
+
+    if ((offs % SECTOR_SIZE_BYTES) != 0U) {
+      return false;
+    }
+
+    found = true;
+  }
+
+  return found;
+}
+#endif
+
 status_t pfs_init(bool run_filesystem_check) {
   for (int fd = FD_INDEX_OFFSET; fd < FD_INDEX_OFFSET + MAX_FD_HANDLES; fd++) {
     PFS_FD(fd) = (FileDesc){.fd_status = FD_STATUS_FREE};
   }
+
+#ifdef CONFIG_FS_PFS_FORMAT_SECTOR_PAGES
+  if (run_filesystem_check && prv_written_with_sector_pages()) {
+    PBL_LOG_WRN("Filesystem has one page per erase sector, formatting");
+    pbl_flash_partition_erase(PART_FILESYSTEM, 0U, PART_FILESYSTEM_SIZE);
+  }
+#endif
 
   ftl_populate_region_list();
 

@@ -17,6 +17,14 @@ config FS_PFS
     help
       PFS, the wear-leveled file system on the external NOR flash.
 
+config FS_PFS_FORMAT_SECTOR_PAGES
+    bool "Format a PFS written with one page per erase sector"
+    depends on FS_PFS
+    help
+      At boot, format the filesystem when its page headers sit only at
+      erase sector starts: it was written by a firmware whose page was
+      the whole erase sector, and smaller pages cannot read its files.
+
 config FS_PFS_SHELL_LITTER
     bool "PFS litter shell command"
     depends on FS_PFS && SHELL
