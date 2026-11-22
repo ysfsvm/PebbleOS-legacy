@@ -1946,6 +1946,15 @@ static status_t copy_or_recover_gc_data(int fd, GCData *gcdata, bool do_copy) {
         get_updated_erase_hdr(&hdr, sector_start_page + pg);
       } else {
         prv_flash_read((uint8_t *)&hdr, sizeof(hdr), base_addr);
+#ifdef CONFIG_FS_PFS_VERSION_2
+        if (hdr.version == PFS_FIRST_VERSION) {
+          const bool crc_ok = (compute_pg_header_crc(&hdr) == hdr.hdr_crc);
+          hdr.version = PFS_CUR_VERSION;
+          if (crc_ok) {
+            hdr.hdr_crc = compute_pg_header_crc(&hdr);
+          }
+        }
+#endif
       }
     }
 
@@ -3332,6 +3341,66 @@ static bool prv_convert_sector_pages(void) {
 }
 #endif
 
+#ifdef CONFIG_FS_PFS_VERSION_2
+#if UNITTEST
+static bool s_test_skip_first_version_rewrite;
+#endif
+
+//! First-version page that decides the mount, or INVALID_PAGE
+static uint16_t prv_first_version_mount_page(void) {
+  for (uint16_t pg = 0; pg < s_pfs_page_count; pg += PFS_PAGES_PER_ERASE_SECTOR) {
+    uint16_t version;
+    prv_flash_read((uint8_t *)&version, sizeof(version),
+                   prv_page_to_flash_offset(pg) + offsetof(PageHeader, version));
+    if ((version >> 8) != PFS_MAGIC) {
+      continue;
+    }
+    if (version > PFS_FIRST_VERSION) {
+      return INVALID_PAGE;
+    }
+
+    const uint8_t flags = prv_get_page_flags(pg);
+    if (IS_PAGE_TYPE(flags, PAGE_FLAG_ERASED_PAGE) || IS_PAGE_TYPE(flags, PAGE_FLAG_START_PAGE) ||
+        IS_PAGE_TYPE(flags, PAGE_FLAG_CONT_PAGE) || page_is_deleted(flags)) {
+      return pg;
+    }
+  }
+  return INVALID_PAGE;
+}
+
+static void prv_update_first_version_mount_page(void) {
+#if UNITTEST
+  if (s_test_skip_first_version_rewrite) {
+    return;
+  }
+#endif
+  const uint16_t page = prv_first_version_mount_page();
+  if (page == INVALID_PAGE) {
+    return;
+  }
+
+  pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
+  const uint16_t sector = page / PFS_PAGES_PER_ERASE_SECTOR;
+  uint16_t free_page;
+  const uint32_t active = prv_get_sector_page_status(sector, &free_page);
+  if (s_gc_block.block_valid && (s_gc_block.gc_start_page == page)) {
+    // Another sector takes the GC file
+    s_gc_block.block_writes = UINT8_MAX;
+    prv_update_gc_reserved_region();
+  }
+  if ((PBL_POPCOUNT(active) < PFS_PAGES_PER_ERASE_SECTOR) && s_gc_block.block_valid &&
+      (s_gc_block.gc_start_page != page)) {
+    PBL_LOG_INFO("Rewriting sector %u with version 0x%x", (unsigned)sector, PFS_CUR_VERSION);
+    // Recorded in the GC file, also when empty
+    recover_region_from_file(prv_copy_sector_to_gc_file(&free_page, page, active));
+    s_gc_block.block_writes++;
+  } else {
+    PBL_LOG_DBG("Sector %u keeps version 0x%x for now", (unsigned)sector, PFS_FIRST_VERSION);
+  }
+  pbl_mutex_unlock(&s_pfs_mutex);
+}
+#endif
+
 status_t pfs_init(bool run_filesystem_check) {
   for (int fd = FD_INDEX_OFFSET; fd < FD_INDEX_OFFSET + MAX_FD_HANDLES; fd++) {
     PFS_FD(fd) = (FileDesc){.fd_status = FD_STATUS_FREE};
@@ -3379,6 +3448,12 @@ status_t pfs_init(bool run_filesystem_check) {
     // only being cached on the FS
     pfs_format(true);
   }
+
+#ifdef CONFIG_FS_PFS_VERSION_2
+  if (run_filesystem_check) {
+    prv_update_first_version_mount_page();
+  }
+#endif
 
   // get us off to a good start by ensuring there is some pre-erased space on
   // the filesystem. We do a lot of initialization from different threads early
@@ -3576,6 +3651,12 @@ void test_override_last_written_page(uint16_t start_page) {
 void test_override_convert_max_steps(uint32_t max_steps) {
   s_test_convert_max_steps = max_steps;
 }
+
+#ifdef CONFIG_FS_PFS_VERSION_2
+void test_skip_first_version_rewrite(bool skip) {
+  s_test_skip_first_version_rewrite = skip;
+}
+#endif
 
 bool test_convert_needed(void) {
   return (prv_cv_find_marker() != INVALID_PAGE) || prv_written_with_sector_pages() ||

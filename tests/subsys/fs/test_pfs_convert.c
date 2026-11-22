@@ -97,6 +97,7 @@ extern void test_override_convert_max_steps(uint32_t max_steps);
 extern bool test_convert_needed(void);
 extern void test_force_garbage_collection(uint16_t start_page);
 extern void test_rerun_reboot_cleanup(void);
+extern void test_skip_first_version_rewrite(bool skip);
 
 static uint8_t prv_byte(uint8_t seed, uint32_t i) {
   if ((((i / 3000) + seed) % 4) == 0) {
@@ -354,7 +355,8 @@ static void prv_assert_new_layout(void) {
     prv_raw_read(page * PAGE_SIZE, &hdr, sizeof(hdr));
     const bool deleted = (hdr.page_flags == (FLAGS_START & ~FLAG_DELETED)) ||
                          (hdr.page_flags == (FLAGS_CONT & ~FLAG_DELETED));
-    cl_assert((hdr.version == FIRST_VERSION) || (hdr.version == NEW_VERSION) || deleted);
+    const bool blank = (hdr.version == 0xffff) && (hdr.page_flags == 0xff);
+    cl_assert((hdr.version == FIRST_VERSION) || (hdr.version == NEW_VERSION) || deleted || blank);
 
     TestFileMetaData meta;
     prv_raw_read(page * PAGE_SIZE + HDR_SIZE + sizeof(TestFileHeader), &meta, sizeof(meta));
@@ -375,6 +377,27 @@ static int prv_count_version(uint16_t version) {
     count += (hdr.version == version) ? 1 : 0;
   }
   return count;
+}
+
+static bool prv_sector_page_firmware_mounts(void) {
+  for (uint32_t sector = 0; sector < NUM_SECTORS; sector++) {
+    TestPageHeader hdr;
+    prv_raw_read(sector * SECTOR_SIZE_BYTES, &hdr, sizeof(hdr));
+    if ((hdr.version >> 8) != (FIRST_VERSION >> 8)) {
+      continue;
+    }
+    if (hdr.version > FIRST_VERSION) {
+      return false;
+    }
+    const uint8_t flags = hdr.page_flags;
+    const bool deleted =
+        (flags == (FLAGS_START & ~FLAG_DELETED)) || (flags == (FLAGS_CONT & ~FLAG_DELETED));
+    const bool typed = ((~flags & 0x0d) != 0) && ((~flags & FLAG_DELETED) == 0);
+    if (typed || deleted) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static int prv_count_tagged(void) {
@@ -450,6 +473,7 @@ void test_pfs_convert__initialize(void) {
 
 void test_pfs_convert__cleanup(void) {
   test_override_convert_max_steps(0);
+  test_skip_first_version_rewrite(false);
   fake_spi_flash_force_op_failure(0, FakeFlashCutBefore, nullptr);
   fake_spi_flash_cleanup();
   for (int i = 0; i < s_num_files; i++) {
@@ -695,8 +719,18 @@ void test_pfs_convert__half_deleted_page_does_not_delete_a_copy(void) {
   prv_assert_usable();
 }
 
-static void prv_power_cut_sweep(void) {
-  fake_spi_flash_save(s_image, PART_FILESYSTEM_OFFSET, PART_FILESYSTEM_SIZE);
+static void prv_assert_after_cut(bool rewrite) {
+  prv_assert_files();
+  if (rewrite) {
+    cl_assert(!prv_sector_page_firmware_mounts());
+  } else {
+    prv_assert_new_layout();
+  }
+}
+
+static void prv_power_cut_sweep_with(bool rewrite) {
+  test_skip_first_version_rewrite(!rewrite);
+  prv_restore();
 
   uint32_t ops = fake_flash_op_count();
   prv_reboot();
@@ -710,8 +744,7 @@ static void prv_power_cut_sweep(void) {
       cl_assert(prv_boot_with_cut(cut, how));
       cuts++;
       prv_reboot();
-      prv_assert_files();
-      prv_assert_new_layout();
+      prv_assert_after_cut(rewrite);
     }
 
     prv_restore();
@@ -721,12 +754,18 @@ static void prv_power_cut_sweep(void) {
       cuts++;
     }
     prv_reboot();
-    prv_assert_files();
-    prv_assert_new_layout();
+    prv_assert_after_cut(rewrite);
   }
 
   printf("operations %u, cuts %u\n", (unsigned)ops, (unsigned)cuts);
   cl_assert(cuts >= 3 * ops);
+  test_skip_first_version_rewrite(false);
+}
+
+static void prv_power_cut_sweep(void) {
+  fake_spi_flash_save(s_image, PART_FILESYSTEM_OFFSET, PART_FILESYSTEM_SIZE);
+  prv_power_cut_sweep_with(false);
+  prv_power_cut_sweep_with(true);
 }
 
 void test_pfs_convert__power_cut_at_every_operation(void) {
@@ -786,6 +825,7 @@ void test_pfs_convert__old_files_over_small_page_leftovers(void) {
   prv_reboot();
 
   cl_assert(!test_convert_needed());
+  cl_assert(!prv_sector_page_firmware_mounts());
   prv_assert_files();
   prv_assert_new_layout();
   cl_assert_equal_i(prv_count_tagged(), 1);
@@ -844,6 +884,7 @@ static void prv_boot_and_assert_converted(void) {
   prv_reboot();
 
   cl_assert(!test_convert_needed());
+  cl_assert(!prv_sector_page_firmware_mounts());
   prv_assert_files();
   prv_assert_new_layout();
   cl_assert_equal_i(prv_count_tagged(), 1);
@@ -1047,8 +1088,171 @@ void test_pfs_convert__garbage_collection_writes_the_new_version(void) {
   for (uint32_t page = 2 * PAGES_PER_SECTOR; page < 3 * PAGES_PER_SECTOR; page++) {
     TestPageHeader hdr;
     prv_raw_read(page * PAGE_SIZE, &hdr, sizeof(hdr));
-    if (hdr.page_flags == FLAGS_ERASED) {
-      cl_assert_equal_i(hdr.version, NEW_VERSION);
+    cl_assert_equal_i(hdr.version, NEW_VERSION);
+  }
+}
+
+static void prv_first_version_small_pages(void) {
+  prv_small_page_format();
+  const uint16_t zero[] = {0, 1, 20};
+  prv_new_file_at(zero, "zero", 2 * NEW_PAYLOAD + 70, 1, 0);
+  const uint16_t gone[] = {2, 3};
+  prv_new_file_at(gone, "gone", NEW_PAYLOAD + 5, 2, OLD_DELETED);
+  const uint16_t small[] = {4};
+  prv_new_file_at(small, "small", 300, 3, 0);
+  const uint16_t tagged[] = {15};
+  prv_new_file_at(tagged, "tagged", 40, 4, 0);
+  const uint8_t tag = 0xfe;
+  prv_raw_write(15 * PAGE_SIZE + offsetof(TestPageHeader, last_written), &tag, 1);
+  const uint16_t far[] = {50, 70, 16};
+  prv_new_file_at(far, "far", 2 * NEW_PAYLOAD + 9, 5, 0);
+}
+
+static void prv_assert_sector_version(uint16_t sector, uint16_t version) {
+  for (uint32_t page = sector * PAGES_PER_SECTOR; page < (sector + 1) * PAGES_PER_SECTOR; page++) {
+    TestPageHeader hdr;
+    prv_raw_read(page * PAGE_SIZE, &hdr, sizeof(hdr));
+    cl_assert_equal_i(hdr.version, version);
+  }
+}
+
+void test_pfs_convert__first_version_sector_is_rewritten_where_sector_page_firmware_looks(void) {
+  prv_first_version_small_pages();
+  cl_assert(prv_sector_page_firmware_mounts());
+
+  prv_reboot();
+
+  cl_assert(!prv_sector_page_firmware_mounts());
+  prv_assert_sector_version(0, NEW_VERSION);
+  prv_assert_files();
+  cl_assert_equal_i(prv_count_tagged(), 1);
+  const uint32_t ops = fake_flash_op_count();
+  prv_reboot();
+  cl_assert_equal_i(fake_flash_op_count(), ops);
+  prv_assert_usable();
+}
+
+void test_pfs_convert__first_version_sector_rewrite_with_power_cuts(void) {
+  prv_first_version_small_pages();
+  fake_spi_flash_save(s_image, PART_FILESYSTEM_OFFSET, PART_FILESYSTEM_SIZE);
+  prv_power_cut_sweep_with(true);
+}
+
+void test_pfs_convert__full_first_version_sector_is_rewritten_once_a_page_is_free(void) {
+  prv_small_page_format();
+  uint16_t pages[8];
+  for (uint16_t i = 0; i < 8; i++) {
+    pages[i] = i;
+  }
+  prv_new_file_at(pages, "a", 8 * NEW_PAYLOAD - FILEDATA_LEN - 1, 1, 0);
+  for (uint16_t i = 0; i < 8; i++) {
+    pages[i] = 8 + i;
+  }
+  TestFile *b = prv_new_file_at(pages, "b", 8 * NEW_PAYLOAD - FILEDATA_LEN - 1, 2, 0);
+  const uint8_t tag = 0xfe;
+  prv_raw_write(40 * PAGE_SIZE + offsetof(TestPageHeader, last_written), &tag, 1);
+
+  prv_reboot();
+
+  cl_assert(prv_sector_page_firmware_mounts());
+  prv_assert_files();
+
+  cl_assert_equal_i(pfs_remove("b"), S_SUCCESS);
+  b->kept = false;
+  prv_reboot();
+
+  cl_assert(!prv_sector_page_firmware_mounts());
+  prv_assert_sector_version(0, NEW_VERSION);
+  prv_assert_files();
+}
+
+void test_pfs_convert__blank_first_sector_rewrites_the_next(void) {
+  prv_small_page_format();
+  const uint16_t far[] = {17, 40};
+  prv_new_file_at(far, "far", NEW_PAYLOAD + 9, 1, 0);
+  prv_raw_erase(0);
+  cl_assert(prv_sector_page_firmware_mounts());
+
+  prv_reboot();
+
+  cl_assert(!prv_sector_page_firmware_mounts());
+  prv_assert_sector_version(1, NEW_VERSION);
+  prv_assert_files();
+}
+
+static void prv_empty_first_version_sector(uint16_t tagged_page) {
+  prv_small_page_format();
+  const uint8_t tag = 0xfe;
+  prv_raw_write(tagged_page * PAGE_SIZE + offsetof(TestPageHeader, last_written), &tag, 1);
+  const uint16_t far[] = {70, 71};
+  prv_new_file_at(far, "far", NEW_PAYLOAD + 9, 1, 0);
+  fake_spi_flash_save(s_image, PART_FILESYSTEM_OFFSET, PART_FILESYSTEM_SIZE);
+}
+
+static void prv_assert_empty_sector_rewrite_with_power_cuts(void) {
+  uint32_t ops = fake_flash_op_count();
+  prv_reboot();
+  ops = fake_flash_op_count() - ops;
+  prv_assert_sector_version(0, NEW_VERSION);
+
+  for (volatile uint32_t cut = 0; cut < ops; cut++) {
+    for (volatile int how = FakeFlashCutBefore; how <= FakeFlashCutBits; how++) {
+      prv_restore();
+      cl_assert(prv_boot_with_cut(cut, how));
+      prv_reboot();
+      prv_assert_files();
+      cl_assert(!prv_sector_page_firmware_mounts());
+      prv_assert_sector_version(0, NEW_VERSION);
     }
   }
+  printf("operations %u\n", (unsigned)ops);
+}
+
+void test_pfs_convert__empty_first_version_sector_rewrite_with_power_cuts(void) {
+  prv_empty_first_version_sector(90 * PAGES_PER_SECTOR + 3);
+  prv_assert_empty_sector_rewrite_with_power_cuts();
+}
+
+void test_pfs_convert__first_version_gc_sector_rewrite_with_power_cuts(void) {
+  prv_empty_first_version_sector(3);
+  prv_assert_empty_sector_rewrite_with_power_cuts();
+}
+
+void test_pfs_convert__corrupt_page_where_sector_page_firmware_looks_gets_the_new_version(void) {
+  prv_small_page_format();
+  const uint16_t kept[] = {1, 2};
+  prv_new_file_at(kept, "kept", NEW_PAYLOAD + 9, 1, 0);
+  prv_page_header(0, 2, FLAGS_CONT, NO_PAGE, OLD_BAD_CRC);
+  cl_assert(prv_sector_page_firmware_mounts());
+
+  prv_reboot();
+
+  cl_assert(!prv_sector_page_firmware_mounts());
+  TestPageHeader hdr;
+  prv_raw_read(0, &hdr, sizeof(hdr));
+  cl_assert(pbl_crc32_legacy(&hdr, offsetof(TestPageHeader, hdr_crc)) != hdr.hdr_crc);
+  prv_assert_files();
+  const uint32_t ops = fake_flash_op_count();
+  prv_reboot();
+  cl_assert_equal_i(fake_flash_op_count(), ops);
+}
+
+void test_pfs_convert__garbage_collection_of_the_rewritten_sector_keeps_the_new_version(void) {
+  prv_first_version_small_pages();
+  prv_reboot();
+  cl_assert(!prv_sector_page_firmware_mounts());
+
+  cl_assert_equal_i(pfs_remove("small"), S_SUCCESS);
+  for (int i = 0; i < s_num_files; i++) {
+    if (strcmp(s_files[i].name, "small") == 0) {
+      s_files[i].kept = false;
+    }
+  }
+  test_force_garbage_collection(0);
+  cl_assert(!prv_sector_page_firmware_mounts());
+  prv_assert_sector_version(0, NEW_VERSION);
+
+  prv_reboot();
+  cl_assert(!prv_sector_page_firmware_mounts());
+  prv_assert_files();
 }

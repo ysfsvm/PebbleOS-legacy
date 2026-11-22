@@ -264,7 +264,7 @@ void test_pfs_layout__deleted_pages_inside_sectors_are_kept(void) {
 
   pfs_init(true);
 
-  for (uint32_t page = 0; page < num_pages; page++) {
+  for (uint32_t page = pages_per_sector; page < num_pages; page++) {
     if ((page % pages_per_sector) != 0) {
       cl_assert(!prv_page_is_erased_header(page));
     }
