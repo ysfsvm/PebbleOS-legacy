@@ -2135,6 +2135,7 @@ typedef struct {
   uint16_t free_pages;
   uint16_t junk_pages;
   uint16_t blank_pages;
+  bool erase_failed;
 } CvState;
 
 static void prv_cv_read(uint32_t offs, void *buf, size_t len) {
@@ -2428,6 +2429,7 @@ static void prv_cv_scan(CvState *st, uint16_t marker_page) {
   st->free_pages = 0;
   st->junk_pages = 0;
   st->blank_pages = 0;
+  st->erase_failed = false;
 
   if (st->marker_page != INVALID_PAGE) {
     for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
@@ -2509,20 +2511,30 @@ static uint32_t prv_cv_sector_erase_count(uint16_t sector) {
   return 1;
 }
 
-static uint32_t prv_cv_erase_sector(uint16_t sector) {
+//! @return false if the sector is not erased
+static bool prv_cv_erase_sector(CvState *st, uint16_t sector, uint32_t *erase_count) {
   PageHeader hdr;
   prv_cv_read(sector * SECTOR_SIZE_BYTES, &hdr, sizeof(hdr));
-  uint32_t erase_count = (hdr.version == PFS_CUR_VERSION) ? hdr.erase_count : 0;
-  erase_count = (erase_count == UINT32_MAX) ? 1 : (erase_count + 1);
+  *erase_count = (hdr.version == PFS_CUR_VERSION) ? hdr.erase_count : 0;
+  *erase_count = (*erase_count == UINT32_MAX) ? 1 : (*erase_count + 1);
 
-  pbl_flash_partition_erase(PART_FILESYSTEM, sector * SECTOR_SIZE_BYTES, SECTOR_SIZE_BYTES);
+  const uint32_t offs = sector * SECTOR_SIZE_BYTES;
+  const int ret = pbl_flash_partition_erase(PART_FILESYSTEM, offs, SECTOR_SIZE_BYTES);
   prv_cv_progress();
-  return erase_count;
+  if ((ret != 0) || !pbl_flash_partition_is_erased(PART_FILESYSTEM, offs, SECTOR_SIZE_BYTES)) {
+    PBL_LOG_ERR("Sector %u did not erase (%d)", (unsigned)sector, ret);
+    st->erase_failed = true;
+    return false;
+  }
+  return true;
 }
 
-static void prv_cv_reclaim(uint16_t sector) {
+static void prv_cv_reclaim(CvState *st, uint16_t sector) {
   PBL_LOG_DBG("Erasing sector %u", (unsigned)sector);
-  prv_cv_format_sector(nullptr, sector, prv_cv_erase_sector(sector));
+  uint32_t erase_count;
+  if (prv_cv_erase_sector(st, sector, &erase_count)) {
+    prv_cv_format_sector(nullptr, sector, erase_count);
+  }
 }
 
 static void prv_cv_write_flags(uint32_t offs, uint8_t flags) {
@@ -2678,7 +2690,10 @@ static void prv_cv_begin(CvState *st) {
     return;
   }
 
-  const uint32_t erase_count = prv_cv_erase_sector(sector);
+  uint32_t erase_count;
+  if (!prv_cv_erase_sector(st, sector, &erase_count)) {
+    return;
+  }
   const uint16_t page = sector * PFS_PAGES_PER_ERASE_SECTOR;
   const uint32_t offs = prv_page_to_flash_offset(page);
   const size_t namelen = strlen(CV_MARKER_NAME);
@@ -2729,10 +2744,10 @@ static bool prv_cv_reclaimable(const CvState *st, uint16_t sector) {
   return false;
 }
 
-static bool prv_cv_reclaim_one(const CvState *st, bool new_sectors) {
+static bool prv_cv_reclaim_one(CvState *st, bool new_sectors) {
   for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
     if ((st->sector_new[sector] == new_sectors) && prv_cv_reclaimable(st, sector)) {
-      prv_cv_reclaim(sector);
+      prv_cv_reclaim(st, sector);
       return true;
     }
   }
@@ -2806,8 +2821,8 @@ static bool prv_cv_step(CvState *st) {
 
   bool reclaimed = false;
   for (uint16_t sector = 0; sector < CV_SECTORS; sector++) {
-    if (!st->sector_new[sector] && prv_cv_reclaimable(st, sector)) {
-      prv_cv_reclaim(sector);
+    if (!st->sector_new[sector] && prv_cv_reclaimable(st, sector) && !st->erase_failed) {
+      prv_cv_reclaim(st, sector);
       reclaimed = true;
     }
   }
@@ -2882,16 +2897,20 @@ static bool prv_convert_sector_pages(void) {
         converting = true;
       }
       prv_cv_begin(st);
-      continue;
+    } else {
+      if (!converting) {
+        PBL_LOG_INFO("Resuming the filesystem conversion, %u files left", (unsigned)st->num_old);
+        converting = true;
+      }
+      if (!prv_cv_step(st)) {
+        PBL_LOG_INFO("Filesystem converted in %" PRIu32 " s",
+                     (uint32_t)((pbl_uptime_ticks() - start_ticks) / PBL_TICK_HZ));
+        break;
+      }
     }
 
-    if (!converting) {
-      PBL_LOG_INFO("Resuming the filesystem conversion, %u files left", (unsigned)st->num_old);
-      converting = true;
-    }
-    if (!prv_cv_step(st)) {
-      PBL_LOG_INFO("Filesystem converted in %" PRIu32 " s",
-                   (uint32_t)((pbl_uptime_ticks() - start_ticks) / PBL_TICK_HZ));
+    if (st->erase_failed) {
+      done = false;
       break;
     }
   }
