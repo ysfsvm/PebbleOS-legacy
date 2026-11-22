@@ -96,6 +96,7 @@ extern void pfs_reset_all_state(void);
 extern void test_override_convert_max_steps(uint32_t max_steps);
 extern bool test_convert_needed(void);
 extern void test_force_garbage_collection(uint16_t start_page);
+extern void test_rerun_reboot_cleanup(void);
 
 static uint8_t prv_byte(uint8_t seed, uint32_t i) {
   if ((((i / 3000) + seed) % 4) == 0) {
@@ -291,6 +292,7 @@ static uint32_t prv_full_size(const char *name) {
 
 static void prv_reboot(void) {
   pfs_reset_all_state();
+  test_rerun_reboot_cleanup();
   pfs_init(true);
 }
 
@@ -922,6 +924,7 @@ void test_pfs_convert__small_page_filesystem_states_are_left_alone(void) {
     for (volatile int how = FakeFlashCutBefore; how <= FakeFlashCutBits; how++) {
       prv_restore();
       pfs_reset_all_state();
+      test_rerun_reboot_cleanup();
       pfs_init(false);
       jmp_buf jb;
       if (setjmp(jb) == 0) {
