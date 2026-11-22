@@ -38,6 +38,7 @@ config FS_PFS_FORMAT_SECTOR_PAGES
 config FS_PFS_CONVERT_SECTOR_PAGES
     bool "Convert a PFS written with one page per erase sector"
     depends on FS_PFS_FORMAT_SECTOR_PAGES
+    default y if FLASH_S29VS
     help
       Instead of formatting such a filesystem, convert it at boot to the
       smaller pages, keeping its files. A conversion cut by a reset
