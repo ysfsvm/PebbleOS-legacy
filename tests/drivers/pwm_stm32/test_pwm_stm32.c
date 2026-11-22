@@ -19,17 +19,19 @@
 #include <pbl/kernel/irq.h>
 #include <pbl/services/battery/battery_monitor.h>
 #include <pbl/services/battery/battery_state.h>
-#include <pbl/soc/stm32/clock.h>
 #include <pbl/util/bits.h>
 #include <pbl/util/math.h>
 #include <pbl/util/misc.h>
 
 #include <clar.h>
 #include <devicetree/devices.h>
+#include <hardware/stm32f4_tim.h>
 
 #define RCC_BASE   0x40023800U
 #define GPIOB_BASE 0x40020400U
 #define GPIOF_BASE 0x40021400U
+#define TIM10_BASE 0x40014400U
+#define TIM12_BASE 0x40001800U
 #define NUM_REGS   64
 
 #define RCC_PLLCFGR 0x04U
@@ -88,9 +90,6 @@ static uint32_t *prv_reg(uintptr_t addr) {
   return &s_regs[s_num_regs++].val;
 }
 
-TIM_TypeDef fake_tim10;
-TIM_TypeDef fake_tim12;
-
 enum tim_field {
   F_CR1,
   F_CR2,
@@ -115,59 +114,41 @@ static const char *const s_field_names[NUM_FIELDS] = {
   "PSC", "ARR", "CCR1", "CCR2", "CCR3", "CCR4",  "BDTR",
 };
 
+static const uint32_t s_field_offsets[NUM_FIELDS] = {
+  STM32F4_TIM_CR1_OFFSET,   STM32F4_TIM_CR2_OFFSET,  STM32F4_TIM_SMCR_OFFSET,
+  STM32F4_TIM_DIER_OFFSET,  STM32F4_TIM_EGR_OFFSET,  STM32F4_TIM_CCMR1_OFFSET,
+  STM32F4_TIM_CCMR2_OFFSET, STM32F4_TIM_CCER_OFFSET, STM32F4_TIM_PSC_OFFSET,
+  STM32F4_TIM_ARR_OFFSET,   STM32F4_TIM_CCR1_OFFSET, STM32F4_TIM_CCR2_OFFSET,
+  STM32F4_TIM_CCR3_OFFSET,  STM32F4_TIM_CCR4_OFFSET, STM32F4_TIM_BDTR_OFFSET,
+};
+
 struct tim {
   const char *name;
-  TIM_TypeDef *regs;
+  uintptr_t base;
+  uint32_t gate_off;
+  uint32_t gate_bit;
   uint32_t seen[NUM_FIELDS];
 };
 
 static struct tim s_tims[] = {
-  {.name = "tim10", .regs = &fake_tim10},
-  {.name = "tim12", .regs = &fake_tim12},
+  {.name = "tim10", .base = TIM10_BASE, .gate_off = RCC_APB2ENR, .gate_bit = 17U},
+  {.name = "tim12", .base = TIM12_BASE, .gate_off = RCC_APB1ENR, .gate_bit = 6U},
 };
 
 static uint32_t prv_tim_field(const struct tim *t, enum tim_field f) {
-  const TIM_TypeDef *r = t->regs;
+  return *prv_reg(t->base + s_field_offsets[f]);
+}
 
-  switch (f) {
-    case F_CR1:
-      return r->CR1;
-    case F_CR2:
-      return r->CR2;
-    case F_SMCR:
-      return r->SMCR;
-    case F_DIER:
-      return r->DIER;
-    case F_EGR:
-      return r->EGR;
-    case F_CCMR1:
-      return r->CCMR1;
-    case F_CCMR2:
-      return r->CCMR2;
-    case F_CCER:
-      return r->CCER;
-    case F_PSC:
-      return r->PSC;
-    case F_ARR:
-      return r->ARR;
-    case F_CCR1:
-      return r->CCR1;
-    case F_CCR2:
-      return r->CCR2;
-    case F_CCR3:
-      return r->CCR3;
-    case F_CCR4:
-      return r->CCR4;
-    case F_BDTR:
-      return r->BDTR;
-    default:
-      return 0U;
+static struct tim *prv_tim_at(uintptr_t addr) {
+  for (size_t i = 0; i < ARRAY_LENGTH(s_tims); i++) {
+    if (addr >= s_tims[i].base && addr < s_tims[i].base + 0x400U) {
+      return &s_tims[i];
+    }
   }
+  return NULL;
 }
 
 static void prv_tims_reset(void) {
-  memset(&fake_tim10, 0, sizeof(fake_tim10));
-  memset(&fake_tim12, 0, sizeof(fake_tim12));
   for (size_t i = 0; i < ARRAY_LENGTH(s_tims); i++) {
     memset(s_tims[i].seen, 0, sizeof(s_tims[i].seen));
   }
@@ -307,6 +288,11 @@ uint32_t fake_mmio_readl(uintptr_t addr) {
 }
 
 void fake_mmio_writel(uint32_t val, uintptr_t addr) {
+  const struct tim *t = prv_tim_at(addr);
+
+  if (t != NULL && (*prv_reg(RCC_BASE + t->gate_off) & PBL_BIT(t->gate_bit)) == 0U) {
+    m_trace_line("VIOLATION %s written with its clock off", t->name);
+  }
   if (addr >= RCC_BASE && addr < RCC_BASE + 0x400U) {
     prv_rcc_write(addr - RCC_BASE, val);
     return;
@@ -335,34 +321,6 @@ void soc_stm32_stop_release(void) {
   m_event("stop release");
 }
 
-void soc_stm32_clock_set(enum soc_stm32_bus bus, uint32_t mask, bool enable) {
-  static const uint32_t offsets[] = {
-    [SOC_STM32_AHB1] = RCC_AHB1ENR,
-    [SOC_STM32_AHB2] = RCC_AHB2ENR,
-    [SOC_STM32_APB1] = RCC_APB1ENR,
-    [SOC_STM32_APB2] = RCC_APB2ENR,
-  };
-  const uint32_t val = *prv_reg(RCC_BASE + offsets[bus]);
-
-  fake_mmio_writel(enable ? (val | mask) : (val & ~mask), RCC_BASE + offsets[bus]);
-}
-
-void RCC_GetClocksFreq(RCC_ClocksTypeDef *clocks) {
-  clocks->SYSCLK_Frequency = 96000000U;
-  clocks->HCLK_Frequency = 96000000U;
-  clocks->PCLK1_Frequency = s_apb_undivided ? 96000000U : 24000000U;
-  clocks->PCLK2_Frequency = s_apb_undivided ? 96000000U : 48000000U;
-}
-
-//! The Standard Peripheral Library's TIM_Cmd().
-void TIM_Cmd(TIM_TypeDef *TIMx, FunctionalState NewState) {
-  if (NewState != DISABLE) {
-    TIMx->CR1 |= TIM_CR1_CEN;
-  } else {
-    TIMx->CR1 &= (uint16_t)~TIM_CR1_CEN;
-  }
-}
-
 bool battery_monitor_critical_lockout(void) {
   return s_lockout;
 }
@@ -382,20 +340,14 @@ uint16_t pmic_get_vsys(void) {
 // Devices, as snowy.c defines them
 ////////////////////////////////////////////////////////////////////////////////
 
-PBL_PWM_STM32_DEFINE(s_tim12, "tim12", TIM12, RCC_APB1Periph_TIM12, false, GPIO_AF_TIM12,
-                     PBL_GPIO(STM32_GPIOB, 14, 0));
-
 PBL_BACKLIGHT_PWM_DEFINE(s_backlight, "backlight", PBL_GPIO(nullptr, 0, 0),
-                         PBL_PWM(&s_tim12.ctrl, 0, PBL_PWM_HZ(256), 0));
+                         PBL_PWM(&dt_pwm12, 0, PBL_PWM_HZ(256), 0));
 
-PBL_PWM_STM32_DEFINE(s_tim10, "tim10", TIM10, RCC_APB2Periph_TIM10, true, GPIO_AF_TIM10,
-                     PBL_GPIO(STM32_GPIOB, 8, 0));
-
-PBL_VIBE_PWM_DEFINE(s_vibe, true, .pwm = PBL_PWM(&s_tim10.ctrl, 0, PBL_PWM_HZ(22000), 0),
+PBL_VIBE_PWM_DEFINE(s_vibe, true, .pwm = PBL_PWM(&dt_pwm10, 0, PBL_PWM_HZ(22000), 0),
                     .ctl = PBL_GPIO(STM32_GPIOF, 4, 0));
 
-static const struct pbl_pwm_controller *const s_tim12_ctrl = &s_tim12.ctrl;
-static const struct pbl_pwm_controller *const s_tim10_ctrl = &s_tim10.ctrl;
+static const struct pbl_pwm_controller *const s_tim12_ctrl = &dt_pwm12;
+static const struct pbl_pwm_controller *const s_tim10_ctrl = &dt_pwm10;
 static const struct pbl_backlight *const s_bl = &s_backlight;
 static const struct pbl_vibe *const s_vb = &s_vibe.vibe;
 
@@ -411,8 +363,10 @@ static void prv_devices_reset(void) {
   memset(dt_rcc.use_counts, 0, dt_rcc.num_clks);
   memset(s_tim12_ctrl->states, 0, sizeof(s_tim12_ctrl->states[0]) * s_tim12_ctrl->num_channels);
   memset(s_tim10_ctrl->states, 0, sizeof(s_tim10_ctrl->states[0]) * s_tim10_ctrl->num_channels);
-  memset(s_tim12.state, 0, sizeof(*s_tim12.state));
-  memset(s_tim10.state, 0, sizeof(*s_tim10.state));
+  memset(container_of(s_tim12_ctrl, const struct pbl_pwm_stm32, ctrl)->state, 0,
+         sizeof(struct pbl_pwm_stm32_state));
+  memset(container_of(s_tim10_ctrl, const struct pbl_pwm_stm32, ctrl)->state, 0,
+         sizeof(struct pbl_pwm_stm32_state));
   s_bl->state->brightness = 0U;
 }
 
