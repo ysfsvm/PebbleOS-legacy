@@ -100,6 +100,7 @@ ARG_OPTIONS = {
     "all",
     "values",
     "cells",
+    "depends",
 }
 
 
@@ -230,6 +231,8 @@ class Spec:
                 raise self._error(f"argument {arg}: needs one of {sorted(ARG_KINDS)}")
             if "default" in arg and arg["default"] is None:
                 raise self._error(f"argument {arg}: 'default' has no value")
+            if arg.get("depends", False) is not False:
+                raise self._error(f"argument {arg}: 'depends' can only be false")
             item = arg.get("item")
             if isinstance(item, dict):
                 check_keys(
@@ -1186,7 +1189,10 @@ class Generator:
         return "default" in arg or bool(arg.get("optional"))
 
     def _arg(self, dev, arg):
+        needed = len(self.deps)
         value = self._value(dev, arg)
+        if arg.get("depends") is False:
+            del self.deps[needed:]
         if value is None and arg.get("optional"):
             return None
         if value is None:

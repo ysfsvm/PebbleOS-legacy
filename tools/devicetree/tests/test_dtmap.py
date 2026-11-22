@@ -1768,6 +1768,36 @@ def test_a_needed_device_is_listed_once(tmp_path):
     }
 
 
+def test_a_provider_the_driver_brings_up_is_not_needed(tmp_path):
+    args = [{"clock": 0, "depends": False}, {"gpio": "enable"}, {"parent": "bus"}]
+    sensor = "enable-gpios = <&gpio 2 0>; clocks = <&ctrl 1>;"
+    gen = sensor_generate(tmp_path, args, sensor)
+    assert depends(gen) == [
+        "PBL_DEVICE_DEPENDS(dt_bus, &dt_bus.dev, &acme_intc.dev, &acme_clk.dev);",
+        "PBL_DEVICE_DEPENDS(dt_sensor, &dt_sensor.dev, &dt_gpio.dev);",
+    ]
+    assert "acme_clk" in instances(gen, "acme_sensor").split("PBL_DEVICE_DEPENDS")[0]
+
+
+@pytest.mark.parametrize("first", [True, False], ids=["first", "second"])
+def test_a_provider_another_argument_needs_stays_needed(tmp_path, first):
+    args = [{"gpio": "reset", "depends": False}, {"gpio": "enable"}]
+    if not first:
+        args.reverse()
+    sensor = "reset-gpios = <&gpio 1 0>; enable-gpios = <&gpio 2 0>;"
+    gen = sensor_generate(tmp_path, [*args, {"parent": "bus"}], sensor)
+    assert (
+        "PBL_DEVICE_DEPENDS(dt_sensor, &dt_sensor.dev, &dt_gpio.dev);"
+        in instances(gen, "acme_sensor")
+    )
+
+
+def test_depends_can_only_be_false(tmp_path):
+    with pytest.raises(DtError, match="'depends' can only be false"):
+        args = [{"clock": 0, "depends": True}]
+        spec("acme,sensor", {**SPECS["acme,sensor"], "args": args})
+
+
 def test_redirected_and_listed_references_are_needed(tmp_path):
     args = [{"gpio": "reset", "child": "sub"}, {"self": "bus", "of": "link"}]
     sensor = "link = <&pinctrl>; sub { reset-gpios = <&gpio 9 0>; };"
