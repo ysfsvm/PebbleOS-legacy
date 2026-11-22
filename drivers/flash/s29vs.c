@@ -4,10 +4,7 @@
 //! Spansion S29VS on the STM32F439 FMC (snowy).
 //!
 //! The chip can lock one contiguous sector range until it is reset ("Sector
-//! Lock Range"). PRF is locked at init and again after every unprotect or
-//! write_protect request, so it is never left writable: a hardware backstop
-//! for the flash guard, which also covers stock shared PRF storage and MFG
-//! info.
+//! Lock Range"). PRF is locked at init.
 
 #include <errno.h>
 #include <inttypes.h>
@@ -526,7 +523,6 @@ static status_t flash_impl_erase_resume(FlashAddress sector_addr) {
   return status;
 }
 
-// A chip erase would take PRF, MFG info and the boot FPGA bitstream with it.
 static void prv_read_words_pio(uint16_t *buffer, uintptr_t flash_data_region, uint32_t num_words) {
   for (uint32_t words_read = 0; words_read < num_words; words_read++) {
     buffer[words_read] = pbl_readw(flash_data_region + words_read * 2U);
@@ -926,8 +922,7 @@ extern uint32_t RTC_ReadBackupRegister(uint32_t reg_id);
 // The sector being erased, kept in an RTC backup register across resets as the stock firmware
 // did, so a reset in the middle of an erase (watchdog, power loss) finishes it at the next boot
 // instead of leaving a half-erased sector behind.
-// The stock firmware's layout, so its recovery firmware (which shares the register) reads it
-// the same way: bit 31 erase in progress, bit 30 subsector, the address below.
+// Stock firmware's bit layout
 #define ERASE_PROGRESS_IN_PROGRESS 0x80000000U
 #define ERASE_PROGRESS_SUBSECTOR   0x40000000U
 #define ERASE_PROGRESS_ADDR_MASK   0x3FFFFFFFU
