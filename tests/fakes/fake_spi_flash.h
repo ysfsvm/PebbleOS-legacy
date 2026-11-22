@@ -28,6 +28,20 @@ void fake_spi_flash_cleanup(void);
 //! the atomicity of algorithms which are purported to be so.
 void fake_spi_flash_force_future_failure(int after_n_bytes, jmp_buf *retire_to);
 
+typedef enum {
+  FakeFlashCutBefore = 0,
+  FakeFlashCutHalf,
+  FakeFlashCutBits,
+} FakeFlashCut;
+
+//! Cut power at program or erase operation after_n_ops
+void fake_spi_flash_force_op_failure(uint32_t after_n_ops, FakeFlashCut cut, jmp_buf *retire_to);
+
+uint32_t fake_flash_op_count(void);
+
+void fake_spi_flash_save(uint8_t *buf, uint32_t addr, uint32_t len);
+void fake_spi_flash_restore(const uint8_t *buf, uint32_t addr, uint32_t len);
+
 void fake_flash_assert_untouched_outside(uint32_t begin, uint32_t end);
 
 uint32_t fake_flash_read_count(void);
