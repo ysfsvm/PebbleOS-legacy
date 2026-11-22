@@ -30,8 +30,10 @@
 #include <clar.h>
 #include <sys/time.h>
 
-#define PCLK1_HZ 32000000U
+#define PCLK1_HZ          32000000U
+#define PCLK1_HZ_FIRMWARE 24000000U
 
+static uint32_t s_pclk1_hz;
 static int s_irq_locks;
 static bool s_done;
 
@@ -499,10 +501,11 @@ void RCC_APB1PeriphResetCmd(uint32_t periph, FunctionalState state) {
 }
 
 void RCC_GetClocksFreq(RCC_ClocksTypeDef *clocks) {
-  clocks->SYSCLK_Frequency = 2U * PCLK1_HZ;
-  clocks->HCLK_Frequency = 2U * PCLK1_HZ;
-  clocks->PCLK1_Frequency = PCLK1_HZ;
-  clocks->PCLK2_Frequency = 2U * PCLK1_HZ;
+  const uint32_t sysclk = s_pclk1_hz == PCLK1_HZ_FIRMWARE ? 4U * s_pclk1_hz : 2U * s_pclk1_hz;
+  clocks->SYSCLK_Frequency = sysclk;
+  clocks->HCLK_Frequency = sysclk;
+  clocks->PCLK1_Frequency = s_pclk1_hz;
+  clocks->PCLK2_Frequency = s_pclk1_hz == PCLK1_HZ_FIRMWARE ? sysclk / 2U : sysclk;
 }
 
 static void prv_dump_trace(const char *name, const char *trace) {
@@ -544,6 +547,7 @@ static void prv_pmic_init(void) {
 }
 
 void test_i2c_stm32__initialize(void) {
+  s_pclk1_hz = PCLK1_HZ;
   m_devices_reset();
   prv_regs_reset();
   s_irq_locks = 0;
@@ -595,6 +599,17 @@ void test_i2c_stm32__pmic_boot(void) {
   prv_pmic_init();
   prv_trace_regs();
   CHECK_TRACE(TRACE_PMIC_BOOT);
+}
+
+void test_i2c_stm32__pmic_boot_apb1_24mhz(void) {
+  s_pclk1_hz = PCLK1_HZ_FIRMWARE;
+  *prv_reg(RCC_BASE + 0x04U) = (4U << 24) | (192U << 6) | 16U;
+  *prv_reg(RCC_BASE + 0x08U) = (4U << 13) | (5U << 10) | (2U << 2) | 2U;
+  s_dump_regs = true;
+  m_trace_start();
+  prv_pmic_init();
+  prv_trace_regs();
+  CHECK_TRACE(TRACE_PMIC_BOOT_APB1_24MHZ);
 }
 
 void test_i2c_stm32__pmic_absent(void) {
