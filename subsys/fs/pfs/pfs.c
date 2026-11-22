@@ -225,6 +225,13 @@ static uint8_t *s_pfs_page_flags_cache = nullptr;
 static uint16_t s_pfs_page_count = 0;
 static uint32_t s_pfs_size = 0;
 
+#ifdef CONFIG_FS_PFS_CONVERT_SECTOR_PAGES
+static bool s_pfs_unconverted;
+#define PFS_UNCONVERTED() s_pfs_unconverted
+#else
+#define PFS_UNCONVERTED() false
+#endif
+
 // In the interest of being able to leverage sector erases / minimize seek time
 // for large files, deploying a variable length page size may be beneficial.
 // Therefore, isolating the page offset related calculations to one location.
@@ -1032,6 +1039,10 @@ status_t pfs_stat(const char *name, size_t *size) {
     return E_INVALID_ARGUMENT;
   }
 
+  if (PFS_UNCONVERTED()) {
+    return E_INTERNAL;
+  }
+
   pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
 
   status_t rv = E_DOES_NOT_EXIST;
@@ -1226,6 +1237,10 @@ cleanup:
 }
 
 uint32_t pfs_get_size(void) {
+  if (PFS_UNCONVERTED()) {
+    return 0;
+  }
+
   // one sector is needed for internal book keeping
   return s_pfs_size - GC_REGION_SIZE;
 }
@@ -1441,6 +1456,10 @@ status_t pfs_remove(const char *name) {
     return (E_INVALID_ARGUMENT);
   }
 
+  if (PFS_UNCONVERTED()) {
+    return E_INTERNAL;
+  }
+
   pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
   uint16_t page = 0;
   int fd;
@@ -1512,6 +1531,10 @@ static void prv_add_to_file_list(uint16_t pg, const char *file_name, uint32_t fi
 
 PFSFileListEntry *pfs_create_file_list(PFSFilenameTestCallback callback) {
   ListNode *head = nullptr;
+
+  if (PFS_UNCONVERTED()) {
+    return nullptr;
+  }
 
   pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
   prv_for_each_file(callback, prv_add_to_file_list, &head);
@@ -1774,6 +1797,10 @@ int pfs_open(const char *name, uint8_t op_flags, uint8_t file_type, size_t start
   size_t namelen = (name == nullptr) ? 0 : strlen(name);
   if ((namelen < 1) || (namelen > FILE_MAX_NAME_LEN)) {
     return (E_INVALID_ARGUMENT);
+  }
+
+  if (PFS_UNCONVERTED()) {
+    return E_INTERNAL;
   }
 
   pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
@@ -2067,6 +2094,8 @@ static bool prv_written_with_sector_pages(void) {
 #define CV_MARKER_MAGIC  0x50465338
 #define CV_DELETED_START (0xff & ~DELETED_START_PAGE_MASK)
 #define CV_DELETED_CONT  (0xff & ~DELETED_CONT_PAGE_MASK)
+// Two file events and two erases per sector, and the single steps
+#define CV_MAX_STEPS (4 * CV_SECTORS + 8)
 
 static_assert(PFS_PAGES_PER_ERASE_SECTOR > (CV_GUARD_PAGE + 1), "No page left beside the guard");
 static_assert(CV_PAGES < INVALID_PAGE, "Page indexes must fit in a page header");
@@ -2812,14 +2841,34 @@ static bool prv_cv_step(CvState *st) {
   return false;
 }
 
-static void prv_convert_sector_pages(void) {
+#if UNITTEST
+static uint32_t s_test_convert_max_steps;
+#endif
+
+static uint32_t prv_cv_max_steps(void) {
+#if UNITTEST
+  if (s_test_convert_max_steps != 0) {
+    return s_test_convert_max_steps;
+  }
+#endif
+  return CV_MAX_STEPS;
+}
+
+//! @return false if the conversion stopped before its end
+static bool prv_convert_sector_pages(void) {
   CvState *st = nullptr;
   const uint64_t start_ticks = pbl_uptime_ticks();
   bool converting = false;
+  bool done = true;
 
-  for (;;) {
+  for (uint32_t steps = 0;; steps++) {
     const uint16_t marker_page = prv_cv_find_marker();
     if ((marker_page == INVALID_PAGE) && !prv_written_with_sector_pages()) {
+      break;
+    }
+    if (steps == prv_cv_max_steps()) {
+      PBL_LOG_ERR("Filesystem conversion stopped after %" PRIu32 " steps", steps);
+      done = false;
       break;
     }
     if (st == nullptr) {
@@ -2850,6 +2899,7 @@ static void prv_convert_sector_pages(void) {
   if (st != nullptr) {
     pbl_free(st);
   }
+  return done;
 }
 #endif
 
@@ -2859,8 +2909,10 @@ status_t pfs_init(bool run_filesystem_check) {
   }
 
 #ifdef CONFIG_FS_PFS_CONVERT_SECTOR_PAGES
-  if (run_filesystem_check) {
-    prv_convert_sector_pages();
+  s_pfs_unconverted = run_filesystem_check && !prv_convert_sector_pages();
+  if (s_pfs_unconverted) {
+    PBL_LOG_ERR("Filesystem unavailable until the conversion ends");
+    return S_SUCCESS;
   }
 #elif defined(CONFIG_FS_PFS_FORMAT_SECTOR_PAGES)
   if (run_filesystem_check && prv_written_with_sector_pages()) {
@@ -2911,6 +2963,11 @@ status_t pfs_init(bool run_filesystem_check) {
 }
 
 void pfs_format(bool write_erase_headers) {
+  if (PFS_UNCONVERTED()) {
+    PBL_LOG_ERR("Not formatting an unconverted filesystem");
+    return;
+  }
+
   PBL_LOG_INFO("FS-Format Start");
   pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
 
@@ -2950,6 +3007,10 @@ int pfs_sector_optimal_size(int min_size, int namelen) {
 
 uint32_t get_available_pfs_space(void) {
   uint32_t allocated_space = 0;
+
+  if (PFS_UNCONVERTED()) {
+    return 0;
+  }
 
   for (uint16_t pg = 0; pg < s_pfs_page_count; pg++) {
     uint8_t page_flags = prv_get_page_flags(pg);
@@ -3077,6 +3138,12 @@ void test_force_reboot_during_garbage_collection(uint16_t start_page) {
 void test_override_last_written_page(uint16_t start_page) {
   s_test_last_page_written_override = s_last_page_written;
 }
+
+#ifdef CONFIG_FS_PFS_CONVERT_SECTOR_PAGES
+void test_override_convert_max_steps(uint32_t max_steps) {
+  s_test_convert_max_steps = max_steps;
+}
+#endif
 #endif
 
 #ifdef CONFIG_SHELL
