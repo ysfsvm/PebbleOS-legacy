@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
+# SPDX-License-Identifier: Apache-2.0
+
+compatible: st,stm32f4-spi
+config: SPI_STM32
+class: spi
+define: PBL_SPI_STM32_DEFINE
+args:
+  - name: true
+  - reg: 0
+  - clock: 0
+  - reset: 0
+    default: PBL_RESET(nullptr, 0)
+  - pinctrl: default
+  - gpio: cs
+    all: true
+    optional: true

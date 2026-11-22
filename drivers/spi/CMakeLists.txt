@@ -4,4 +4,5 @@
 pbl_library()
 pbl_library_sources(spi.c)
 pbl_library_sources_ifdef(CONFIG_SPI_NRF5 nrf5.c)
+pbl_library_sources_ifdef(CONFIG_SPI_STM32 stm32.c)
 pbl_library_sources_ifdef(CONFIG_SPI_SHELL shell.c)

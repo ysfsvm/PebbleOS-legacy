@@ -22,6 +22,14 @@ config SPI_NRF5_IRQ_PRIO
     help
       Priority of the controller interrupts.
 
+config SPI_STM32
+    bool "ST STM32F4 SPI Controller"
+    default DT_HAS_ST_STM32F4_SPI_ENABLED
+    depends on SOC_STM32F4
+    select RESET
+    help
+      Support for the STM32F4 SPI block in master mode, polled.
+
 config SPI_SHELL
     bool "Shell commands"
     default DRIVER_SHELL
