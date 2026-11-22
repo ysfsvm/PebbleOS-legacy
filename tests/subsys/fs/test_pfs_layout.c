@@ -24,6 +24,12 @@
 #define TEST_FLAGS_ERASED 0xfe
 #define TEST_FLAGS_START  0xfa
 
+#ifdef CONFIG_FS_PFS_VERSION_2
+#define TEST_FORMAT_VERSION 0x5002
+#else
+#define TEST_FORMAT_VERSION TEST_PFS_VERSION
+#endif
+
 typedef struct __attribute__((packed)) {
   uint16_t version;
   uint8_t last_written;
@@ -126,7 +132,7 @@ static void prv_write_chance_magic(uint32_t offs, uint8_t flags) {
 static bool prv_page_is_erased_header(uint32_t page) {
   TestPageHeader hdr;
   prv_raw_read(page * TEST_PAGE_SIZE, &hdr, sizeof(hdr));
-  return (hdr.version == TEST_PFS_VERSION) && (hdr.page_flags == TEST_FLAGS_ERASED);
+  return (hdr.version == TEST_FORMAT_VERSION) && (hdr.page_flags == TEST_FLAGS_ERASED);
 }
 
 static void prv_create_file(const char *name, uint8_t fill, size_t len) {

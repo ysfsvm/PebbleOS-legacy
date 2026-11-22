@@ -26,6 +26,8 @@
 #define NUM_PAGES        (PART_FILESYSTEM_SIZE / PAGE_SIZE)
 #define PAGES_PER_SECTOR (SECTOR_SIZE_BYTES / PAGE_SIZE)
 #define NO_PAGE          0xffff
+#define FIRST_VERSION    0x5001
+#define NEW_VERSION      0x5002
 
 #define FLAGS_ERASED 0xfe
 #define FLAGS_START  0xfa
@@ -93,6 +95,7 @@ static uint8_t *s_stream;
 extern void pfs_reset_all_state(void);
 extern void test_override_convert_max_steps(uint32_t max_steps);
 extern bool test_convert_needed(void);
+extern void test_force_garbage_collection(uint16_t start_page);
 
 static uint8_t prv_byte(uint8_t seed, uint32_t i) {
   if ((((i / 3000) + seed) % 4) == 0) {
@@ -118,7 +121,7 @@ static void prv_page_header(uint32_t offs, uint32_t erase_count, uint8_t flags, 
   if (hdr.erase_count == 0xffffffff) {
     hdr.erase_count = erase_count;
   }
-  hdr.version = 0x5001;
+  hdr.version = FIRST_VERSION;
   hdr.page_flags = flags;
   hdr.next_page = next;
   if (next != NO_PAGE) {
@@ -153,7 +156,7 @@ static void prv_old_deleted(uint16_t sector, uint8_t flags) {
 static void prv_erased_header_at(uint32_t offs, uint32_t erase_count) {
   TestPageHeader hdr;
   memset(&hdr, 0xff, sizeof(hdr));
-  hdr.version = 0x5001;
+  hdr.version = FIRST_VERSION;
   hdr.page_flags = FLAGS_ERASED;
   hdr.erase_count = erase_count;
   prv_raw_write(offs, &hdr, offsetof(TestPageHeader, rsvd1));
@@ -349,7 +352,7 @@ static void prv_assert_new_layout(void) {
     prv_raw_read(page * PAGE_SIZE, &hdr, sizeof(hdr));
     const bool deleted = (hdr.page_flags == (FLAGS_START & ~FLAG_DELETED)) ||
                          (hdr.page_flags == (FLAGS_CONT & ~FLAG_DELETED));
-    cl_assert((hdr.version == 0x5001) || deleted);
+    cl_assert((hdr.version == FIRST_VERSION) || (hdr.version == NEW_VERSION) || deleted);
 
     TestFileMetaData meta;
     prv_raw_read(page * PAGE_SIZE + HDR_SIZE + sizeof(TestFileHeader), &meta, sizeof(meta));
@@ -360,6 +363,16 @@ static void prv_assert_new_layout(void) {
       cl_assert_equal_i(meta.tmp_state, 0);
     }
   }
+}
+
+static int prv_count_version(uint16_t version) {
+  int count = 0;
+  for (uint32_t page = 0; page < NUM_PAGES; page++) {
+    TestPageHeader hdr;
+    prv_raw_read(page * PAGE_SIZE, &hdr, sizeof(hdr));
+    count += (hdr.version == version) ? 1 : 0;
+  }
+  return count;
 }
 
 static int prv_count_tagged(void) {
@@ -458,6 +471,7 @@ void test_pfs_convert__every_kind_of_page(void) {
 
   prv_assert_files();
   prv_assert_new_layout();
+  cl_assert_equal_i(prv_count_version(NEW_VERSION), NUM_PAGES);
   cl_assert_equal_i(prv_count_tagged(), 1);
   prv_assert_usable();
 }
@@ -499,6 +513,7 @@ void test_pfs_convert__full_filesystem(void) {
 
   prv_assert_files();
   prv_assert_new_layout();
+  cl_assert_equal_i(prv_count_version(NEW_VERSION), NUM_PAGES);
   prv_assert_usable();
 }
 
@@ -641,7 +656,7 @@ static uint16_t prv_first_new_sector(void) {
   for (uint16_t sector = 0; sector < NUM_SECTORS; sector++) {
     TestPageHeader hdr;
     prv_raw_read((sector + 1) * SECTOR_SIZE_BYTES - PAGE_SIZE, &hdr, sizeof(hdr));
-    if (hdr.version == 0x5001) {
+    if (hdr.version == NEW_VERSION) {
       return sector;
     }
   }
@@ -989,4 +1004,48 @@ void test_pfs_convert__small_page_garbage_collection_cut_is_left_alone(void) {
 
   pfs_remove("x");
   prv_assert_files();
+}
+
+void test_pfs_convert__blank_flash_is_formatted_with_the_new_version(void) {
+  prv_reboot();
+
+  cl_assert_equal_i(prv_count_version(NEW_VERSION), NUM_PAGES);
+}
+
+void test_pfs_convert__files_written_over_first_version_headers_read_back(void) {
+  prv_small_page_format();
+  const uint16_t kept[] = {16, 17};
+  prv_new_file_at(kept, "kept", NEW_PAYLOAD + 10, 1, 0);
+  prv_reboot();
+
+  prv_write_file("a", 3 * NEW_PAYLOAD + 5, 2);
+  prv_add_file("a", 3 * NEW_PAYLOAD + 5, 2, 0);
+  prv_write_file("b", 100, 3);
+  prv_add_file("b", 100, 3, 0);
+  prv_reboot();
+
+  prv_assert_files();
+  prv_assert_new_layout();
+  cl_assert_equal_i(prv_count_version(FIRST_VERSION & NEW_VERSION), 0);
+}
+
+void test_pfs_convert__garbage_collection_writes_the_new_version(void) {
+  prv_small_page_format();
+  const uint16_t live[] = {33, 35};
+  prv_new_file_at(live, "live", NEW_PAYLOAD + 10, 1, 0);
+  const uint16_t gone[] = {34, 36};
+  prv_new_file_at(gone, "gone", NEW_PAYLOAD + 10, 2, OLD_DELETED);
+  prv_reboot();
+
+  test_force_garbage_collection(2 * PAGES_PER_SECTOR);
+  prv_reboot();
+
+  prv_assert_files();
+  for (uint32_t page = 2 * PAGES_PER_SECTOR; page < 3 * PAGES_PER_SECTOR; page++) {
+    TestPageHeader hdr;
+    prv_raw_read(page * PAGE_SIZE, &hdr, sizeof(hdr));
+    if (hdr.page_flags == FLAGS_ERASED) {
+      cl_assert_equal_i(hdr.version, NEW_VERSION);
+    }
+  }
 }
