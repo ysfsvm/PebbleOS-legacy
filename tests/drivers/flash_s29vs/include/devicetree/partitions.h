@@ -1,0 +1,13 @@
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#pragma once
+
+#define PART_STOCK_SHARED_PRF_STORAGE_OFFSET 0x00c0000
+#define PART_STOCK_SHARED_PRF_STORAGE_SIZE   0x20000
+
+#define PART_MFG_INFO_OFFSET 0x00e0000
+#define PART_MFG_INFO_SIZE   0x20000
+
+#define PART_SAFE_FIRMWARE_OFFSET 0x0200000
+#define PART_SAFE_FIRMWARE_SIZE   0x100000
