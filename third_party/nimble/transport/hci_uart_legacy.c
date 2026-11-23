@@ -897,11 +897,8 @@ static bool prv_write_byte_bounded(uint8_t byte) {
          (pbl_cycle_get_32() - spin_start) < spin_cycles) {
   }
   // Still busy: the controller holds CTS off, e.g. while it wakes up.
-  for (uint32_t waited_ms = 0U; !uart_is_tx_ready(BOARD_BT_HCI_UART_DEV); waited_ms++) {
-    if (waited_ms >= TX_STALL_TIMEOUT_MS) {
-      return false;
-    }
-    pbl_thread_sleep(PBL_MSEC(1));
+  if (PBL_POLL_SLEEP_MS(uart_is_tx_ready(BOARD_BT_HCI_UART_DEV), 1U, TX_STALL_TIMEOUT_MS) != 0) {
+    return false;
   }
   uart_write_byte(BOARD_BT_HCI_UART_DEV, byte);
   return true;
