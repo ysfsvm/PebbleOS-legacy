@@ -1,12 +1,8 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-//! The stock bootloader counts, in an RTC backup register, the boots made with each button held,
-//! and refuses to start the firmware once a count says the button is stuck. The firmware's part
-//! is to clear a button's count when it sees that button released: any release of the key that is
-//! reported, from the keys driver or another input source such as remote input or the input
-//! shell, in a thread or an interrupt.
+//! Clears the stock bootloader's stuck button count of a released key.
 
 #include <pbl/input/input.h>
 #include <pbl/kernel/irq.h>
@@ -14,7 +10,7 @@
 
 #include <system/rtc_registers.h>
 
-//! Byte of the register that holds a key's count, in the bootloader's button order.
+//! Byte of a key's count, in the bootloader's button order.
 static int prv_button_index(uint16_t code) {
   switch (code) {
     case PBL_INPUT_KEY_BACK:

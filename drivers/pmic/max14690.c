@@ -239,8 +239,6 @@ int pbl_max14690_init(const struct pbl_device *dev) {
   s_present = true;
 
   prv_config_charger();
-  // Without its interrupt the PMIC still runs, and still powers the display: only charger
-  // connection events are lost.
   const int ret = prv_configure_interrupts();
   if (ret != 0) {
     PBL_LOG_ERR("No MAX14690 interrupt (%d): no charger events", ret);

@@ -37,8 +37,6 @@ static uint32_t prv_pull(uint32_t flags) {
   return STM32F4_GPIO_PULL_NONE;
 }
 
-// Every mode gets all four settings: an input or analog pin an output type and a speed too, which
-// it ignores. The mode goes last, once the pin has its other settings.
 static void prv_init_pin(const struct pbl_gpio_stm32 *port, uint8_t pin, uint32_t mode,
                          uint32_t flags, uint32_t speed) {
   pbl_modifyl(PBL_BIT(pin), (flags & PBL_GPIO_OPEN_DRAIN) ? PBL_BIT(pin) : 0U,
@@ -52,7 +50,7 @@ static int prv_configure(const struct pbl_gpio_port *gpio_port, uint8_t pin, uin
   const struct pbl_gpio_stm32 *port = prv_port(gpio_port);
 
   if (flags & PBL_GPIO_OUTPUT) {
-    // The level first, so the pin starts driving it
+    // Level before mode
     if (flags & PBL_GPIO_OUTPUT_INIT_HIGH) {
       pbl_writel(STM32F4_GPIO_BSRR_SET(pin), port->base + STM32F4_GPIO_BSRR_OFFSET);
     } else if (flags & PBL_GPIO_OUTPUT_INIT_LOW) {
@@ -120,9 +118,6 @@ static int prv_init(const struct pbl_device *dev) {
 
 // Pin interrupts
 ////////////////////////////////////////////////////////////////////////////////
-// EXTI line N serves pin N of one port at a time, the one SYSCFG routes to it. Every port has a
-// controller, so that a request names the port, and they share the state of the 16 lines: a line
-// requested through one port is busy for the others.
 
 #define EXTI_IRQ_PRIO 14
 
@@ -135,7 +130,7 @@ struct pbl_gpio_stm32_intc {
 };
 
 static struct pbl_intc_line s_exti_lines[STM32F4_EXTI_NUM_PIN_LINES];
-// Any of the controllers, for the handlers: they share the lines
+// Any controller, for the handlers
 static const struct pbl_gpio_stm32_intc *s_exti_intc;
 
 static const struct pbl_gpio_stm32_intc *prv_intc(const struct pbl_intc *intc) {
@@ -158,8 +153,6 @@ static void prv_exti_bit(uintptr_t reg, uint32_t line, bool set) {
   pbl_writel(set ? value | PBL_BIT(line) : value & ~PBL_BIT(line), reg);
 }
 
-// The ops run with interrupts locked, so the read-modify-writes of the shared registers stay
-// whole. The pin is left as configured: an input, with the pulls the board gave it.
 static int prv_intc_configure(const struct pbl_intc *intc, uint32_t hwirq, uint32_t type) {
   const struct pbl_gpio_stm32_intc *pin_intc = prv_intc(intc);
   uintptr_t exticr = pin_intc->syscfg + STM32F4_SYSCFG_EXTICR_OFFSET(hwirq);
@@ -186,14 +179,12 @@ static int prv_intc_enable(const struct pbl_intc *intc, uint32_t hwirq) {
 
   pbl_writel(PBL_BIT(hwirq), pin_intc->exti + STM32F4_EXTI_PR_OFFSET);
   prv_exti_bit(pin_intc->exti + STM32F4_EXTI_IMR_OFFSET, hwirq, true);
-  // Several lines share a vector: it stays enabled, the lines are masked one by one
+  // Shared vector, stays enabled
   pbl_irq_enable(prv_exti_irqn(hwirq));
 
   return 0;
 }
 
-// A pending bit requests the vector whether its line is masked or not: masking alone leaves an
-// edge that came before it requesting the vector, which no handler then takes.
 static int prv_intc_disable(const struct pbl_intc *intc, uint32_t hwirq) {
   const struct pbl_gpio_stm32_intc *pin_intc = prv_intc(intc);
 
@@ -217,8 +208,7 @@ static void prv_exti_irq_handler(uint32_t lines) {
     return;
   }
 
-  // Every pending line of the vector is cleared, masked ones too, or the vector is taken again
-  // and again; only the unmasked ones have their handlers called.
+  // Clear all pending lines, dispatch unmasked ones
   pending = pbl_readl(pin_intc->exti + STM32F4_EXTI_PR_OFFSET) & lines;
   pbl_writel(pending, pin_intc->exti + STM32F4_EXTI_PR_OFFSET);
   pending &= pbl_readl(pin_intc->exti + STM32F4_EXTI_IMR_OFFSET);
@@ -237,7 +227,6 @@ PBL_IRQ_CONNECT(EXTI4, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0x0010U, 0);
 PBL_IRQ_CONNECT(EXTI9_5, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0x03e0U, 0);
 PBL_IRQ_CONNECT(EXTI15_10, EXTI_IRQ_PRIO, prv_exti_irq_handler, 0xfc00U, 0);
 
-// SYSCFG routes the lines to the ports
 static int prv_intc_init(const struct pbl_device *dev) {
   const struct pbl_gpio_stm32_intc *pin_intc =
       prv_intc(container_of(dev, const struct pbl_intc, dev));
@@ -253,7 +242,6 @@ static int prv_intc_init(const struct pbl_device *dev) {
   return 0;
 }
 
-// The ports are 1 KiB apart, port A first, in a block aligned to 16 of them
 #define PORT_INDEX(_base) ((uint8_t)(((_base) / STM32F4_GPIO_PORT_SIZE) % 16U))
 
 #define PBL_GPIO_STM32_DEFINE(sym, _name, _base, _clk, _exti, _syscfg, _syscfg_clk)       \

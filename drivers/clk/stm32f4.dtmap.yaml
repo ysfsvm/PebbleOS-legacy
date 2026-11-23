@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 retake
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
 # SPDX-License-Identifier: Apache-2.0
 
 compatible: st,stm32f42xx-rcc

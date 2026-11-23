@@ -1,12 +1,9 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
 
-/*
- * Peripheral clock gates and resets of the STM32F4 RCC, with the values of the
- * upstream binding: the bit of a peripheral in its bus register.
- */
+/* STM32F4 RCC gates and resets, upstream binding values */
 
 #define STM32F4_RCC_AHB1_GPIOA      0
 #define STM32F4_RCC_AHB1_GPIOB      1

@@ -8,17 +8,14 @@
 /**
  * @defgroup task_wdt_arch Hard lockup detector architecture interface
  * @ingroup task_wdt_hardlockup
- * @brief What an architecture that selects @c ARCH_HAS_HARDLOCKUP_DETECTOR implements.
+ * @brief Implemented by architectures with @c ARCH_HAS_HARDLOCKUP_DETECTOR.
  * @{
  */
 
 /**
- * @brief Start a periodic timer interrupt that the kernel's interrupt lock does not mask.
+ * @brief Start a periodic timer interrupt not masked by the kernel's interrupt lock.
  *
- * It may stop while the CPU idles or is in deep sleep. Each period, its interrupt calls
- * pbl_task_wdt_hardlockup_tick() with the code it interrupted.
- *
- * @param period_ms Period wanted, in milliseconds; the timer may only reach a shorter one.
+ * @param period_ms Wanted period, in milliseconds.
  * @return The period started, in milliseconds, at least 1.
  */
 uint32_t arch_hardlockup_start(uint32_t period_ms);

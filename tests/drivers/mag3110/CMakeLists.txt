@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 retake
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
 # SPDX-License-Identifier: Apache-2.0
 
 pbl_clar_test(test_mag3110

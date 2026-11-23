@@ -154,7 +154,6 @@ static int prv_init(const struct pbl_mag *mag) {
     return ret;
   }
 
-  // Brings the pin's port up too, which the pin's configuration needs
   ret = pbl_device_init(&irq->intc->dev);
   if (ret != 0) {
     return ret;
@@ -203,7 +202,6 @@ static int prv_set_sampling_interval(const struct pbl_mag *mag, uint32_t interva
     }
 
     if (ret != 0 || rate_hz == 0U) {
-      // Stopped, or failed on the way: the line is off until the next start.
       (void)pbl_intc_disable(&state->irq);
       state->rate_hz = 0U;
       if (ret != 0) {

@@ -1,8 +1,7 @@
-// SPDX-FileCopyrightText: 2026 retake
+// SPDX-FileCopyrightText: 2026 Yusuf Sevim
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 
-// The blocks every STM32F4 has, as Linux describes them in stm32f429.dtsi and
-// stm32f4-pinctrl.dtsi. The blocks of a part go in its own file.
+// Blocks common to the STM32F4 parts
 
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/mfd/stm32f4-rcc.h>
@@ -94,8 +93,7 @@
 			clocks = <&rcc 0 STM32F4_APB2_CLOCK(SYSCFG)>;
 		};
 
-		// Lines 0-15 are the pins, routed from the ports by SYSCFG; 16 and up
-		// are the PVD, the RTC and the USB wakeups.
+		// Lines 0-15: pins; 16 and up: PVD, RTC, USB wakeups
 		exti: interrupt-controller@40013c00 {
 			compatible = "st,stm32-exti";
 			interrupt-controller;

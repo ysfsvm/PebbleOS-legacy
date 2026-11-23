@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <stdint.h>
@@ -8,7 +8,6 @@
 
 #include <clar.h>
 
-// The clock controller the instance takes its clock from, counting the users
 PBL_DEVICE_CLASS_DEFINE(pbl_clk_controller_class, "clk");
 PBL_CLK_CONTROLLER_STATE_DEFINE(s_rcc, 1);
 static const struct pbl_clk_controller s_rcc =
@@ -16,7 +15,6 @@ static const struct pbl_clk_controller s_rcc =
 
 static int s_clk_users;
 static int s_clk_ret;
-// Depth of the interrupt lock, and whether the controller's init, which needs none, is running
 static int s_locks;
 static bool s_in_init;
 
@@ -29,7 +27,6 @@ int pbl_clk_enable(const struct pbl_clk *clk) {
 }
 
 int pbl_clk_disable(const struct pbl_clk *clk) {
-  // A stream's clock goes with its running state, under the lock
   cl_assert(s_locks > 0 || s_in_init);
   cl_assert(s_clk_users > 0);
   s_clk_users--;
@@ -37,14 +34,6 @@ int pbl_clk_disable(const struct pbl_clk *clk) {
 }
 
 #include "../../../drivers/dma/stm32f4.c"
-
-// Registers
-////////////////////////////////////////////////////////////////////////////////
-// Offsets and bits from the reference manual, not from the driver's header. Without the clock,
-// the registers read as zero and ignore writes. A flag is cleared by writing 1 to its bit in the
-// flag clear register. A stream whose enable bit is cleared stops after s_stop_reads reads of its
-// control register, or never with s_stuck. A stream is enabled and the flags are read under the
-// interrupt lock.
 
 #define DMA2_BASE 0x40026400U
 #define NUM_REGS  64
@@ -137,8 +126,6 @@ static void prv_irq(uint8_t stream) {
   pbl_dma_stm32f4_irq_handler(&(const struct pbl_dma_stm32f4_stream_irq){&dt_dma2_inst, stream});
 }
 
-//! The stream sets its flags and, at the end of a normal transfer or on an error, clears its
-//! enable bit, then its interrupt is taken. Flags in the driver's order: FE, -, DME, TE, HT, TC.
 static void prv_event(uint8_t stream, uint32_t flags) {
   static const uint8_t shift[4] = {0U, 6U, 16U, 22U};
   uint32_t *cr = prv_reg(DMA2_BASE + SCR(stream));
@@ -150,9 +137,6 @@ static void prv_event(uint8_t stream, uint32_t flags) {
   *prv_reg(DMA2_BASE + (stream < 4U ? LISR : HISR)) |= flags << shift[stream % 4U];
   prv_irq(stream);
 }
-
-// Kernel
-////////////////////////////////////////////////////////////////////////////////
 
 void pbl_irq_lock(void) {
   s_locks++;
@@ -166,10 +150,6 @@ void pbl_irq_unlock(void) {
 void pbl_irq_enable(pbl_irq_t irq) {
 }
 
-// Tests
-////////////////////////////////////////////////////////////////////////////////
-
-// SPI6_TX: stream 5, channel 1; I2S2_RX would be on DMA1, so stream 3 here stands for a ring
 static const struct pbl_dma_chan s_tx =
     PBL_DMA_CHAN(&dt_dma2, 5, 1, PBL_DMA_STM32F4_PRIORITY(PBL_DMA_STM32F4_PRIORITY_VERY_HIGH));
 static const struct pbl_dma_chan s_rx =
@@ -282,7 +262,6 @@ void test_dma_stm32f4__a_transfer_runs_with_the_clock_on(void) {
   cl_assert_equal_i(
       pbl_dma_prep_slave_single(&s_tx, s_buf, 40, PBL_DMA_MEM_TO_DEV, prv_callback, nullptr), 0);
 
-  // EN, TEIE, TCIE, memory to peripheral, MINC, very high priority, channel 1
   cl_assert_equal_i(prv_dma(0x88), 0x02030455U);
   cl_assert_equal_i(prv_dma(0x8c), 40U);
   cl_assert_equal_i(prv_dma(0x90), SPI_DR);
@@ -299,7 +278,6 @@ void test_dma_stm32f4__the_end_of_a_transfer_lets_the_clock_go(void) {
   cl_assert_equal_i(
       pbl_dma_prep_slave_single(&s_tx, s_buf, 40, PBL_DMA_MEM_TO_DEV, prv_callback, nullptr), 0);
 
-  // TCIF5 is bit 11 of HISR
   *prv_reg(DMA2_BASE + 0x88) &= ~CR_EN;
   *prv_reg(DMA2_BASE + HISR) |= (1U << 11) | (1U << 10);
   prv_irq(5);
@@ -324,12 +302,10 @@ void test_dma_stm32f4__the_callback_starts_the_next_transfer(void) {
 void test_dma_stm32f4__a_ring_reports_each_half(void) {
   cl_assert_equal_i(
       pbl_dma_prep_dma_cyclic(&s_rx, s_buf, 64, 32, PBL_DMA_DEV_TO_MEM, prv_callback, nullptr), 0);
-  // EN, TEIE, HTIE, TCIE, peripheral to memory, CIRC, MINC, half words, high priority, channel 0
   cl_assert_equal_i(prv_dma(0x58), 0x00022d1dU);
   cl_assert_equal_i(prv_dma(0x5c), 32U);
 
   prv_event(3, STM32F4_DMA_HTIF);
-  // TCIF3 is bit 27 of LISR
   *prv_reg(DMA2_BASE + LISR) |= 1U << 27;
   prv_irq(3);
   prv_event(3, STM32F4_DMA_HTIF);
@@ -418,7 +394,6 @@ void test_dma_stm32f4__no_callback_after_terminate(void) {
 }
 
 void test_dma_stm32f4__no_callback_after_terminate_with_the_clock_on(void) {
-  // Another stream keeps the clock, so the stopped one's flags can be read
   cl_assert_equal_i(
       pbl_dma_prep_dma_cyclic(&s_rx, s_buf, 64, 32, PBL_DMA_DEV_TO_MEM, nullptr, nullptr), 0);
   cl_assert_equal_i(
@@ -502,18 +477,14 @@ void test_dma_stm32f4__what_it_cannot_do(void) {
 
   cl_assert_equal_i(pbl_dma_slave_config(&pinc, &cfg), -EINVAL);
   cl_assert_equal_i(pbl_dma_slave_config(&request, &cfg), -EINVAL);
-  // Half words, an odd length
   cl_assert_equal_i(
       pbl_dma_prep_slave_single(&s_rx, s_buf, 7, PBL_DMA_DEV_TO_MEM, nullptr, nullptr), -EINVAL);
-  // Half words, periods of an odd length
   cl_assert_equal_i(
       pbl_dma_prep_dma_cyclic(&s_rx, s_buf, 6, 3, PBL_DMA_DEV_TO_MEM, prv_callback, nullptr),
       -EINVAL);
-  // A ring of three periods
   cl_assert_equal_i(
       pbl_dma_prep_dma_cyclic(&s_rx, s_buf, 48, 16, PBL_DMA_DEV_TO_MEM, prv_callback, nullptr),
       -EINVAL);
-  // More items than NDTR holds
   cl_assert_equal_i(pbl_dma_prep_slave_single(&s_tx, (void *)0x20000000, 0x10000,
                                               PBL_DMA_MEM_TO_DEV, nullptr, nullptr),
                     -EINVAL);
@@ -537,13 +508,11 @@ static int prv_start_at(uintptr_t addr, size_t len) {
 }
 
 void test_dma_stm32f4__the_core_coupled_memory_is_out_of_reach(void) {
-  // Up to the start of the CCM, from its end
   cl_assert_equal_i(prv_start_at(0x10000000 - 8, 8), 0);
   cl_assert_equal_i(prv_start_at(0x10000000 - 8, 9), -EINVAL);
   cl_assert_equal_i(prv_start_at(0x10000100, 8), -EINVAL);
   cl_assert_equal_i(prv_start_at(0x10010000 - 1, 1), -EINVAL);
   cl_assert_equal_i(prv_start_at(0x10010000, 8), 0);
-  // Across the end of the address space
   cl_assert_equal_i(prv_start_at(UINTPTR_MAX - 7, 16), -EINVAL);
   cl_assert_equal_i(s_clk_users, 0);
 }

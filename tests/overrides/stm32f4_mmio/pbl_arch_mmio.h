@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
@@ -6,9 +6,6 @@
 #include <stdint.h>
 
 #include <pbl/kernel/compiler.h>
-
-//! 32-bit register accesses go to the test, which models the peripheral's registers. Byte and
-//! halfword accesses go to memory, as on the host by default.
 
 uint32_t fake_mmio_readl(uintptr_t addr);
 void fake_mmio_writel(uint32_t val, uintptr_t addr);

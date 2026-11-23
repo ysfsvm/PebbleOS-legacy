@@ -1,10 +1,7 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-//! Test of the hard lockup detector (CONFIG_LEGACY_HARDLOCKUP_TEST): a minute after boot, spin
-//! with the kernel's interrupts locked, once per stored core dump. Never on the boot after a
-//! crash or a hardware watchdog reset, whether the detector worked or not, so a failed test costs
-//! one reset, and never during a firmware update.
+//! Hard lockup detector test: spin with interrupts locked a minute after boot.
 
 #include <pbl/coredump/coredump.h>
 #include <pbl/device.h>
@@ -42,7 +39,6 @@ static PBL_DELAYED_WORK_DEFINE(s_lock_up, prv_lock_up);
 static int prv_init(const struct pbl_device *dev) {
   RebootReason reason;
 
-  // Before the boot clears them: the reason the last boot ended and the reset flags
   reboot_reason_get(&reason);
   if (reason.code >= RebootReasonCode_Watchdog || watchdog_check_reset_flag()) {
     PBL_LOG_WRN("Hard lockup test: the last boot ended in a crash, not locking up");

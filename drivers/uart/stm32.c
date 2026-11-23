@@ -33,7 +33,7 @@ static inline void prv_putreg(const struct pbl_uart_stm32 *usart, uint32_t offse
   pbl_writel(value, prv_reg(usart, offset));
 }
 
-// Waits only for bytes sent from here: a USART an earlier stage left may never raise TC
+// Waits only for bytes sent from here
 static void prv_flush(const struct pbl_uart *uart) {
   const struct pbl_uart_stm32 *usart = prv_stm32(uart);
 
@@ -64,7 +64,6 @@ static int prv_setup(const struct pbl_uart_stm32 *usart, uint32_t cr1) {
     return ret;
   }
 
-  // An early console may still be sending
   prv_flush(&usart->uart);
 
   prv_putreg(usart, STM32F4_USART_CR1_OFFSET, 0U);
@@ -84,8 +83,6 @@ static int prv_early_init(const struct pbl_uart *uart) {
   return prv_setup(prv_stm32(uart), STM32F4_USART_CR1_TE);
 }
 
-// The receiver stays on: rx_enable and rx_disable only gate its interrupt, so a byte held back
-// waits in DR, and with flow control RTS tells the peer to wait
 static int prv_init(const struct pbl_uart *uart) {
   const struct pbl_uart_stm32 *usart = prv_stm32(uart);
   int ret;
@@ -100,8 +97,7 @@ static int prv_init(const struct pbl_uart *uart) {
   return 0;
 }
 
-// BRR holds USARTDIV = f / (16 * baud) with a 4-bit fraction, or with 8x oversampling, for rates
-// 16x cannot reach, f / (8 * baud) with a 3-bit one: either way f / baud, rounded
+// USARTDIV, 8x oversampling for high rates
 static int prv_brr(uint32_t clk_hz, uint32_t baudrate, uint32_t *brr, bool *over8) {
   uint32_t div = (clk_hz + baudrate / 2U) / baudrate;
 
@@ -115,7 +111,6 @@ static int prv_brr(uint32_t clk_hz, uint32_t baudrate, uint32_t *brr, bool *over
   return 0;
 }
 
-// Frame settings need the USART disabled
 static int prv_configure(const struct pbl_uart *uart, const struct pbl_uart_config *cfg) {
   const struct pbl_uart_stm32 *usart = prv_stm32(uart);
   uint32_t cr1 = 0U;
@@ -209,7 +204,7 @@ void pbl_uart_stm32_irq_handler(const struct pbl_uart_stm32 *usart) {
     return;
   }
 
-  // Reading DR after SR clears the error flags
+  // Clears the error flags
   c = (uint8_t)prv_getreg(usart, STM32F4_USART_DR_OFFSET);
 
   if ((sr & STM32F4_USART_SR_ORE) != 0U) {

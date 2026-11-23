@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "../../../drivers/pinctrl/stm32.c"
@@ -14,17 +14,12 @@
 #define GPIOG_BASE 0x40021800U
 #define NUM_REGS   32
 
-// Register offsets, from the reference manual
 #define MODER   0x00U
 #define OTYPER  0x04U
 #define OSPEEDR 0x08U
 #define PUPDR   0x0cU
 #define AFRL    0x20U
 #define AFRH    0x24U
-
-// Registers
-////////////////////////////////////////////////////////////////////////////////
-// A register reads as s_fill until it is written, so a field the driver leaves alone shows.
 
 static struct {
   uintptr_t addr;
@@ -59,18 +54,13 @@ static void prv_reset(uint32_t fill) {
   s_fill = fill;
 }
 
-// The 2-bit field of a pin
 static uint32_t prv_field2(uintptr_t base, uint32_t offset, uint8_t pin) {
   return (*prv_reg(base + offset) >> (2U * pin)) & 3U;
 }
 
-// The alternate function of a pin
 static uint32_t prv_af(uintptr_t base, uint8_t pin) {
   return (*prv_reg(base + (pin < 8U ? AFRL : AFRH)) >> (4U * (pin % 8U))) & 0xfU;
 }
-
-// Kernel
-////////////////////////////////////////////////////////////////////////////////
 
 static int s_clk_ret;
 
@@ -87,10 +77,6 @@ int pbl_clk_enable(const struct pbl_clk *clk) {
   return s_clk_ret;
 }
 
-// Tests
-////////////////////////////////////////////////////////////////////////////////
-
-// Each state is selected over registers of zeros and over registers of ones
 static const uint32_t s_fills[] = {0U, 0xffffffffU};
 
 static int prv_select(const struct pbl_pinctrl_state *state, uint32_t fill) {
@@ -100,7 +86,6 @@ static int prv_select(const struct pbl_pinctrl_state *state, uint32_t fill) {
   return pbl_pinctrl_select_state(&pinctrl, PBL_PINCTRL_STATE_DEFAULT);
 }
 
-// Mode, pull, speed and output type of a pin; the other pins' fields keep the fill
 static void prv_assert_pin(uintptr_t base, uint8_t pin, uint32_t mode, uint32_t pull,
                            uint32_t speed, bool open_drain) {
   cl_assert_equal_i(prv_field2(base, MODER, pin), mode);

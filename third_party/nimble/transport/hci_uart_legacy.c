@@ -539,9 +539,7 @@ static void prv_hcill_rx(uint8_t msg) {
   }
 }
 
-//! Back to sleep after a wake that did not complete, with interrupts locked. The wake interrupt is
-//! armed before RTS blocks the controller, so its next wake edge is not lost in between; its line
-//! was set up by the first sleep.
+//! Back to sleep after an incomplete wake, with interrupts locked.
 static void prv_hcill_sleep_locked(void) {
   s_hcill = HcillAsleep;
   cc2564_cts_wake_enable(prv_hcill_cts_wake_isr);

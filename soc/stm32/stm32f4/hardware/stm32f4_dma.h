@@ -1,11 +1,11 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
 
 #include <pbl/util/bits.h>
 
-/* Interrupt status and flag clear registers: streams 0-3 in the low ones, 4-7 in the high ones */
+/* Interrupt status and clear: streams 0-3 low, 4-7 high */
 #define STM32F4_DMA_LISR_OFFSET  0x00
 #define STM32F4_DMA_HISR_OFFSET  0x04
 #define STM32F4_DMA_LIFCR_OFFSET 0x08
@@ -15,7 +15,7 @@
   ((stream) < 4U ? STM32F4_DMA_LISR_OFFSET : STM32F4_DMA_HISR_OFFSET)
 #define STM32F4_DMA_IFCR_OFFSET(stream) \
   ((stream) < 4U ? STM32F4_DMA_LIFCR_OFFSET : STM32F4_DMA_HIFCR_OFFSET)
-/* Position of a stream's six flags: 0, 6, 16 and 22 */
+/* Stream flag shifts: 0, 6, 16, 22 */
 #define STM32F4_DMA_FLAGS_SHIFT(stream) ((((stream) & 2U) << 3) + (((stream) & 1U) * 6U))
 
 #define STM32F4_DMA_FEIF  PBL_BIT(0)

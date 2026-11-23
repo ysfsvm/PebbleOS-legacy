@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 retake
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
 # SPDX-License-Identifier: Apache-2.0
 
 pbl_clar_test(test_pinctrl_stm32
@@ -17,7 +17,6 @@ pbl_clar_test(test_pinctrl_stm32
   DEFINES
     PBL_NO_LINKER_SCRIPT
     CONFIG_DEVICE_LOG_LEVEL=0
-    # The vectors of the STM32F4 the GPIO driver connects
     PBL_SOC_IRQN_EXTI0=6
     PBL_SOC_IRQN_EXTI1=7
     PBL_SOC_IRQN_EXTI2=8

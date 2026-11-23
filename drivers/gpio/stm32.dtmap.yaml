@@ -1,8 +1,7 @@
-# SPDX-FileCopyrightText: 2026 retake
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
 # SPDX-License-Identifier: Apache-2.0
 
-# The GPIO banks of the pin controller, its gpio@ children, and the interrupt controllers of their
-# pins, through the EXTI and SYSCFG of the pin controller
+# GPIO banks and their pin interrupt controllers
 compatible: st,stm32f429-pinctrl
 config: GPIO_STM32
 class: [gpio, intc]

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 retake
+# SPDX-FileCopyrightText: 2026 Yusuf Sevim
 # SPDX-License-Identifier: Apache-2.0
 
 compatible: st,stm32-uart
@@ -10,7 +10,7 @@ args:
   - reg: 0
   - irq: 0
   - clock: 0
-  # Not in the upstream binding: ports start at 115200 and their users set the rate
+  # Not in the upstream binding
   - prop: current-speed
     default: 115200
   - flag: uart-has-rtscts

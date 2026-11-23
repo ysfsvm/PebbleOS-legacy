@@ -565,7 +565,7 @@ static void prv_accel_enable_undersampling(bool enable) {
 // ready on INT2), shake and double tap (INT1).
 static uint8_t s_interrupt_users;
 
-//! The two interrupt lines of the chip.
+//! INT1 and INT2
 static struct pbl_irq_spec s_irqs[2];
 
 static void prv_update_accel_interrupts(bool use, AccelOperatingMode mode) {
@@ -612,7 +612,6 @@ static int prv_init(const struct pbl_accel *accel) {
     if (ret != 0) {
       return ret;
     }
-    // Brings the pin's port up too, which the pin's configuration needs
     ret = pbl_device_init(&s_irqs[i].intc->dev);
     if (ret != 0) {
       return ret;

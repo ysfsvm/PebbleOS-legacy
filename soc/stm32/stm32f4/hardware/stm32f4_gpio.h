@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
@@ -34,5 +34,5 @@
 #define STM32F4_GPIO_BSRR_SET(pin)   PBL_BIT(pin)
 #define STM32F4_GPIO_BSRR_RESET(pin) PBL_BIT((pin) + 16)
 
-/* The ports are 1 KiB apart from port A */
+/* Port stride */
 #define STM32F4_GPIO_PORT_SIZE 0x400U

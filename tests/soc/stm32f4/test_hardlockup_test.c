@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <errno.h>
@@ -15,8 +15,6 @@
 #define PBL_LOG_SYNC_WRN(...)
 
 #include "../../../soc/stm32/stm32f4/hardlockup_test.c"
-
-// The test that locks the watch up on purpose: when it arms, and when it spins.
 
 static RebootReasonCode s_last_reason;
 static bool s_iwdg_reset;
@@ -52,7 +50,6 @@ bool pbl_delayed_work_reschedule(struct pbl_workq *q, struct pbl_delayed_work *d
   return false;
 }
 
-// The spin starts with the lock: leave it there
 void pbl_irq_lock(void) {
   longjmp(s_spin_jmp, 1);
 }
@@ -80,14 +77,12 @@ void test_hardlockup_test__arms_a_minute_after_a_clean_boot(void) {
   cl_assert_equal_i(s_armed_ticks, PBL_MSEC(DELAY_MS).ticks);
 }
 
-//! Also when the detector found nothing and the watchdog reset the watch: one reset, not a loop.
 void test_hardlockup_test__not_after_a_hardware_watchdog_reset(void) {
   s_iwdg_reset = true;
   cl_assert_equal_i(prv_init(&s_dev), 0);
   cl_assert_equal_i(s_armed, 0);
 }
 
-//! The boot after a test lockup, even if the phone reads the dump before the minute is over.
 void test_hardlockup_test__not_after_a_lockup_or_a_crash(void) {
   static const RebootReasonCode s_codes[] = {
     RebootReasonCode_HardLockup,
@@ -112,7 +107,6 @@ void test_hardlockup_test__not_with_an_unread_dump(void) {
   cl_assert(!prv_locks_up());
 }
 
-//! On snowy the dump goes to the firmware update slot that an update fills.
 void test_hardlockup_test__not_during_a_firmware_update(void) {
   s_updating = true;
   cl_assert(!prv_locks_up());

@@ -1,7 +1,5 @@
-// SPDX-FileCopyrightText: 2026 retake
+// SPDX-FileCopyrightText: 2026 Yusuf Sevim
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
-
-// STM32F439. Linux has it as the STM32F429, which it is but for the crypto blocks.
 
 #include "stm32f4.dtsi"
 

@@ -12,9 +12,6 @@
 #include <fff.h>
 #include <kernel_test.h>
 
-// The watchdog thread and the hard lockup detector, with a hardware watchdog driver that does not
-// report its feeds, as one that is not up yet.
-
 void pbl_task_wdt_reset_for_test(void);
 
 #define PERIOD_MS CONFIG_TASK_WDT_CHECK_PERIOD_MS
@@ -96,7 +93,6 @@ void test_task_wdt_detector__the_watchdog_thread_starts_it(void) {
 }
 
 void test_task_wdt_detector__every_check_feeds_it(void) {
-  // A driver's early return must not leave the detector unfed while the thread runs
   cl_assert(watchdog_feed_fake.call_count >= CHECKS);
   cl_assert(s_detector_feeds >= CHECKS);
 }

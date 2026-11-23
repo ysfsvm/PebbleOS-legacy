@@ -8,18 +8,7 @@
 /**
  * @defgroup task_wdt_hardlockup Hard lockup detector
  * @ingroup task_wdt
- * @brief Backstop of the task watchdog for what starves its thread.
- *
- * An interrupt handler that never returns, or that is taken again and again, and a thread that
- * spins with the kernel's interrupts locked keep the watchdog thread from running: the hardware
- * watchdog then resets the system without a core dump. With @c CONFIG_TASK_WDT_HARDLOCKUP, a
- * timer of the architecture that the kernel's interrupt lock does not mask counts the time the
- * CPU runs, outside idle waits and deep sleep, since the watchdog thread last ran or the hardware
- * watchdog was last fed. Past @c CONFIG_TASK_WDT_HARDLOCKUP_TIMEOUT_MS, it reports the
- * interrupted code to pbl_task_wdt_hardlockup(), which by default writes a core dump.
- *
- * It does not see code spinning with every interrupt masked, nor a system that idles or sleeps
- * and never wakes up, where its timer stops: the hardware watchdog still resets those.
+ * @brief Reports code that starves the task watchdog thread.
  * @{
  */
 
@@ -29,9 +18,9 @@ struct pbl_task_wdt_hardlockup {
   uint32_t pc;
   /** Link register of the interrupted code. */
   uint32_t lr;
-  /** Exception the interrupted code ran in, as the architecture numbers it, 0 for a thread. */
+  /** Exception number, 0 for a thread. */
   uint32_t exception;
-  /** Time the CPU ran since the detector was last fed, in milliseconds. */
+  /** CPU time since the last feed, in milliseconds. */
   uint32_t awake_ms;
 };
 
@@ -39,13 +28,10 @@ struct pbl_task_wdt_hardlockup {
 
 /**
  * @brief Note that the system is not locked up.
- *
- * The watchdog thread calls it on every check, whether it feeds the hardware watchdog or not.
- * Hardware watchdog drivers call it from watchdog_feed(), so feeds outside the thread count too.
  */
 void pbl_task_wdt_hardlockup_feed(void);
 
-/** @brief Start the detector. The watchdog thread calls it when it starts. */
+/** @brief Start the detector. */
 void pbl_task_wdt_hardlockup_start(void);
 
 #else
@@ -61,9 +47,7 @@ static inline void pbl_task_wdt_hardlockup_start(void) {
 /**
  * @brief Report a hard lockup.
  *
- * Called once, from the detector's interrupt, which the kernel's interrupt lock does not mask:
- * it must not call the kernel. Weak: the default writes a core dump, or resets the system
- * without @c CONFIG_COREDUMP. An override records the lockup, then does the same.
+ * Weak; runs in the detector's interrupt and must not call the kernel.
  *
  * @param lockup The interrupted code.
  */

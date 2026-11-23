@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-//! The STM32F4 USART API the legacy HCI transport drives its port with. RX is interrupt driven.
+//! STM32F4 USART for the legacy HCI transport. RX is interrupt driven.
 
 #include <pbl/drivers/gpio/stm32.h>
 #include <pbl/drivers/uart/stm32_legacy.h>

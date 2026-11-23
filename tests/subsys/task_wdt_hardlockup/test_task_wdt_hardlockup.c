@@ -7,7 +7,7 @@
 #include <clar.h>
 
 #define TIMEOUT_MS 4500U
-// A SysTick capped below the period asked for, as on a 96 MHz Cortex-M4
+
 #define PERIOD_MS 174U
 
 static uint32_t s_period_asked;
@@ -36,7 +36,6 @@ static void prv_ticks(unsigned int n) {
   }
 }
 
-// Counted periods before the awake time reaches the timeout
 #define PERIODS_TO_TIMEOUT ((TIMEOUT_MS + PERIOD_MS - 1U) / PERIOD_MS)
 
 void test_task_wdt_hardlockup__initialize(void) {
@@ -51,7 +50,6 @@ void test_task_wdt_hardlockup__asks_for_a_sixteenth_of_the_timeout(void) {
 }
 
 void test_task_wdt_hardlockup__reports_at_the_timeout(void) {
-  // The first tick after the start may come at once: it does not count
   prv_ticks(PERIODS_TO_TIMEOUT);
   cl_assert_equal_i(s_reports, 0);
 
@@ -68,9 +66,7 @@ void test_task_wdt_hardlockup__reports_once(void) {
   cl_assert_equal_i(s_reports, 1);
 }
 
-//! A feed just before a tick: counting that tick as a whole period would report a lockup a
-//! period before the timeout.
-void test_task_wdt_hardlockup__never_reports_early(void) {
+void test_task_wdt_hardlockup__a_feed_just_before_a_tick_never_reports_early(void) {
   prv_ticks(5U);
   pbl_task_wdt_hardlockup_feed();
   prv_ticks(PERIODS_TO_TIMEOUT);

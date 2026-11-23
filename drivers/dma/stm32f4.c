@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <errno.h>
@@ -16,11 +16,10 @@ static_assert(PBL_DMA_STM32F4_NUM_STREAMS == STM32F4_DMA_NUM_STREAMS);
 
 #define MAX_REQUEST 7U
 
-// Reads of the enable bit a stream gets to stop; it ends the data item it is moving first
+// Polls of EN when stopping a stream
 #define DISABLE_POLLS 1000U
 
-// Of the binding's configuration cell: the memory increment, which every transfer has, and the
-// priority
+// Configuration cell: MINC and priority
 #define CONFIG_MSK (STM32F4_DMA_SXCR_MINC | STM32F4_DMA_SXCR_PL_MSK)
 
 static const struct pbl_dma_stm32f4 *prv_dmac(const struct pbl_dma_controller *ctrl) {
@@ -40,7 +39,7 @@ static void prv_clear_flags(const struct pbl_dma_controller *ctrl, uint8_t strea
              STM32F4_DMA_FLAGS << STM32F4_DMA_FLAGS_SHIFT(stream));
 }
 
-// The controllers reach the SRAMs and flash, not the core-coupled memory
+// Not in CCM
 static bool prv_reachable(const void *buf, size_t len) {
   uintptr_t start = (uintptr_t)buf;
 
@@ -56,7 +55,6 @@ static bool prv_reachable(const void *buf, size_t len) {
 #endif
 }
 
-// Clear the enable bit and the interrupt enables, wait for the stream to stop, clear its flags
 static int prv_disable(const struct pbl_dma_controller *ctrl, uint8_t stream) {
   uint32_t cr = prv_getreg(ctrl, STM32F4_DMA_SXCR_OFFSET(stream));
 
@@ -73,7 +71,7 @@ static int prv_disable(const struct pbl_dma_controller *ctrl, uint8_t stream) {
   return 0;
 }
 
-// With the interrupt lock held
+// Interrupt lock held
 static void prv_release(const struct pbl_dma_controller *ctrl, uint8_t stream) {
   struct pbl_dma_stm32f4_stream *state = &prv_dmac(ctrl)->streams[stream];
 
@@ -83,7 +81,7 @@ static void prv_release(const struct pbl_dma_controller *ctrl, uint8_t stream) {
   }
 }
 
-// Bus width of the peripheral side of a transfer
+// Peripheral bus width
 static uint32_t prv_width(const struct pbl_dma_controller *ctrl, uint8_t stream,
                           enum pbl_dma_dir dir) {
   const struct pbl_dma_chan_state *chan = &ctrl->chans[stream];
@@ -125,7 +123,6 @@ static int prv_start(const struct pbl_dma_controller *ctrl, uint8_t stream, void
     return -EINVAL;
   }
 
-  // 1, 2 or 4 bytes: 0, 1 or 2, the same on both sides in direct mode
   cr = state->cr | PBL_FIELD_PREP(STM32F4_DMA_SXCR_PSIZE_MSK, width >> 1) |
        PBL_FIELD_PREP(STM32F4_DMA_SXCR_MSIZE_MSK, width >> 1) | STM32F4_DMA_SXCR_MINC |
        STM32F4_DMA_SXCR_TEIE | mode |
@@ -170,7 +167,7 @@ static int prv_prep_slave_single(const struct pbl_dma_controller *ctrl, uint8_t 
   return prv_start(ctrl, stream, buf, len, dir, STM32F4_DMA_SXCR_TCIE);
 }
 
-// The half and full transfer interrupts end the periods of a ring of one or two
+// One or two periods
 static int prv_prep_dma_cyclic(const struct pbl_dma_controller *ctrl, uint8_t stream, void *buf,
                                size_t buf_len, size_t period_len, enum pbl_dma_dir dir) {
   uint32_t mode = STM32F4_DMA_SXCR_CIRC | STM32F4_DMA_SXCR_TCIE;
@@ -204,7 +201,7 @@ static int prv_terminate(const struct pbl_dma_controller *ctrl, uint8_t stream) 
 static int prv_tx_status(const struct pbl_dma_controller *ctrl, uint8_t stream, size_t *residue) {
   uint32_t cr;
 
-  // The registers read as zero while the clock is off
+  // Clock off: registers read as zero
   pbl_irq_lock();
   if (!prv_dmac(ctrl)->streams[stream].running) {
     pbl_irq_unlock();
@@ -227,8 +224,6 @@ void pbl_dma_stm32f4_irq_handler(const struct pbl_dma_stm32f4_stream_irq *irq) {
   uint32_t seq;
   uint32_t cr;
 
-  // Locked, so that a more urgent interrupt cannot stop the stream and start another transfer
-  // between the flags read and the release
   pbl_irq_lock();
   if (!state->running) {
     pbl_irq_unlock();
@@ -241,9 +236,6 @@ void pbl_dma_stm32f4_irq_handler(const struct pbl_dma_stm32f4_stream_irq *irq) {
   cr = prv_getreg(ctrl, STM32F4_DMA_SXCR_OFFSET(stream));
   seq = state->seq;
 
-  // A transfer error disables the stream. The FIFO error, which direct mode raises on an overrun
-  // or underrun, does not; its interrupt is not enabled and its flag is cleared with the others.
-  // At the end of a transfer that is not a ring the stream disabled itself.
   if ((flags & STM32F4_DMA_TEIF) != 0U) {
     (void)prv_disable(ctrl, stream);
     prv_release(ctrl, stream);
@@ -261,21 +253,18 @@ void pbl_dma_stm32f4_irq_handler(const struct pbl_dma_stm32f4_stream_irq *irq) {
     if ((flags & STM32F4_DMA_HTIF) != 0U && (cr & STM32F4_DMA_SXCR_HTIE) != 0U) {
       pbl_dma_complete(ctrl, stream, 0);
     }
-    // Not if the callback stopped the ring, or started another transfer
+    // Unless the callback stopped or restarted it
     if ((flags & STM32F4_DMA_TCIF) != 0U && state->running && state->seq == seq) {
       pbl_dma_complete(ctrl, stream, 0);
     }
     return;
   }
 
-  // The callback may start the next transfer
   if ((flags & STM32F4_DMA_TCIF) != 0U) {
     pbl_dma_complete(ctrl, stream, 0);
   }
 }
 
-// Streams left running or with their interrupts enabled before boot are stopped, so that none
-// interrupts once its line is enabled
 int pbl_dma_stm32f4_init(const struct pbl_device *dev) {
   const struct pbl_dma_stm32f4 *dmac = container_of(dev, const struct pbl_dma_stm32f4, ctrl.dev);
   int ret = pbl_device_init(&dmac->clk.ctrl->dev);

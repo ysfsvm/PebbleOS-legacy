@@ -43,8 +43,7 @@ struct pbl_gpio_stm32 {
 /**
  * @brief Hand a pin to a peripheral.
  *
- * Initialises the pin's port first, so that it can run before the devices are, as for the early
- * console.
+ * Initialises the pin's port first.
  *
  * @param gpio Pin on an STM32 port.
  * @param af Alternate function number, 0 to 15.

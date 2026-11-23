@@ -1,9 +1,9 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
 
-/* Pin modes of the STM32 pinmux cells, with the values of the upstream binding */
+/* STM32 pinmux modes, upstream binding values */
 #define GPIO   0x0
 #define AF0    0x1
 #define AF1    0x2

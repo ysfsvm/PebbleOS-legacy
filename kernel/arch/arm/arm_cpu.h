@@ -170,7 +170,7 @@ static PBL_ALWAYS_INLINE void arm_shpr_set(uint32_t exc, uint8_t prio) {
 }
 
 #ifdef CONFIG_TASK_WDT_HARDLOCKUP
-// The hard lockup detector's SysTick, stopped around an idle wait (hardlockup.c)
+// Hard lockup SysTick, stopped while idle
 void arm_hardlockup_idle_enter(void);
 void arm_hardlockup_idle_exit(void);
 #endif

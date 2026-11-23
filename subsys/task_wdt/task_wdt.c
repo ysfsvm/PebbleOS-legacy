@@ -231,10 +231,8 @@ static bool prv_debugger_attached(void) {
 }
 
 static void prv_feed_hw(bool debugger) {
-  // The thread runs, so there is no hard lockup, whether the hardware watchdog is fed or not
   pbl_task_wdt_hardlockup_feed();
 #ifdef CONFIG_WATCHDOG_RUNS_WHILE_HALTED
-  // Stopped for the debugger: feeding restarts it.
   if (debugger) {
     return;
   }
@@ -285,7 +283,6 @@ static uint32_t prv_check(void) {
 static void prv_thread_entry(void *arg) {
   uint32_t sleep_ms = CONFIG_TASK_WDT_CHECK_PERIOD_MS;
 
-  // It counts from here: the thread feeds it
   pbl_task_wdt_hardlockup_start();
 
   for (;;) {

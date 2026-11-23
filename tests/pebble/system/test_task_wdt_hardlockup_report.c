@@ -11,9 +11,6 @@
 #include <system/die.h>
 #include <system/reboot_reason.h>
 
-// The firmware's hard lockup report, which runs from the detector's interrupt and ends in a core
-// dump: what it leaves in the retained registers for the next boot and the bootloader.
-
 static RebootReason s_reason;
 static uint32_t s_boot_bits;
 static uint32_t s_boot_bits_at_dump;
@@ -28,7 +25,6 @@ void reboot_reason_clear(void) {
   memset(&s_reason, 0, sizeof(s_reason));
 }
 
-// First writer wins, as the firmware's
 void reboot_reason_set(RebootReason *reason) {
   if (s_reason.code == RebootReasonCode_Unknown) {
     s_reason = *reason;
@@ -79,7 +75,6 @@ void test_task_wdt_hardlockup_report__stores_the_lockup(void) {
   cl_assert_equal_i(s_reason.hard_lockup.lr, 0x08005678U);
 }
 
-//! As the assert and task watchdog paths: the bootloader counts it as a failed boot.
 void test_task_wdt_hardlockup_report__counts_as_a_software_failure(void) {
   prv_report();
 
@@ -96,7 +91,6 @@ void test_task_wdt_hardlockup_report__replaces_a_task_watchdog_stall(void) {
   cl_assert_equal_i(s_reason.hard_lockup.pc, 0x08001234U);
 }
 
-//! An assert that then hung with interrupts locked: its reason says more than the hang's PC.
 void test_task_wdt_hardlockup_report__keeps_an_earlier_reason(void) {
   s_reason.code = RebootReasonCode_Assert;
   s_reason.extra.value = 0x08004444U;

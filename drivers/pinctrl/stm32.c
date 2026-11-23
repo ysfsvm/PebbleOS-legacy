@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <errno.h>
@@ -10,18 +10,18 @@
 
 #include <devicetree/devices.h>
 
-// Pin modes of the pinmux cells: GPIO, then AF0-AF15, analog and reserved
+// Pinmux modes: GPIO, AF0-AF15, analog, reserved
 #define MODE_AF0    1U
 #define MODE_AF15   16U
 #define MODE_ANALOG 17U
 #define MODE_RSVD   18U
 
-// Bits of a cell: the pin, its mode and its options
+// Valid cell bits
 #define CELL_MSK                                                                        \
   (PBL_PINCTRL_STM32_MODE_MSK | PBL_PINCTRL_STM32_PIN_MSK | PBL_PINCTRL_STM32_PULL_UP | \
    PBL_PINCTRL_STM32_PULL_DOWN | PBL_PINCTRL_STM32_OPEN_DRAIN | PBL_PINCTRL_STM32_SLEW_MSK)
 
-// Ports A to K, as the binding numbers pins
+// Ports A to K
 #define NUM_PADS (11U * 16U)
 
 struct pbl_pinctrl_stm32 {
@@ -38,7 +38,7 @@ static int prv_configure_pin(uint32_t pin) {
     return -EINVAL;
   }
 
-  // A reserved pin is not muxed
+  // Reserved: not muxed
   if (mode == MODE_RSVD) {
     return 0;
   }

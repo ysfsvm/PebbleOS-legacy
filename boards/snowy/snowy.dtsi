@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 retake
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 
-// What the Pebble Time and Time Round share. The devices not in the tree yet
-// are defined in C (snowy.c).
+// Shared by the Pebble Time and Time Round
 
 #include "st/stm32f439.dtsi"
 #include "snowy-pinctrl.dtsi"
@@ -11,9 +10,7 @@
 #include <dt-bindings/input/input.h>
 
 / {
-	// Active low. Back has an external pull-up, the others take the pin's.
-	// 31 ms: the RTC alarm clock event adds up to 12 ms, so a key is
-	// reported about 40 ms after its last edge, as by the stock firmware.
+	// Back has an external pull-up
 	buttons: gpio-keys {
 		compatible = "gpio-keys";
 
@@ -132,8 +129,7 @@
 	status = "okay";
 };
 
-// CC2564 HCI, with flow control. The legacy HCI transport drives it through its own USART calls
-// (snowy.c), not through this node, which stays disabled until the transport takes a serial port.
+// CC2564 HCI, driven by the legacy HCI transport
 &usart1 {
 	pinctrl-0 = <&usart1_default>;
 	pinctrl-names = "default";

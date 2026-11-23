@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
@@ -16,22 +16,13 @@
  * @ingroup drivers_dma
  * @brief @ref drivers_dma controller of the STM32F4 DMA1 and DMA2.
  *
- * A channel is a stream, 0 to 7, and its request is the stream's channel selection, 0 to 7, as in
- * the reference manual's request mapping. The configuration is the third cell of the upstream
- * binding, of which the priority is used: transfers always step through memory and never through
- * the peripheral. The fourth cell (FIFO threshold, direct mode) is not passed on and may hold any
- * value: transfers always run in direct mode, also for the 0 (FIFO mode) of the upstream USART
- * entries:
+ * A channel is a stream, 0 to 7; its request is the channel selection, 0 to 7:
  *
  * @code{.c}
  * // SPI6_TX: DMA2 stream 5, channel 1
  * static const struct pbl_dma_chan s_tx =
  *     PBL_DMA_CHAN(&dt_dma2, 5, 1, PBL_DMA_STM32F4_PRIORITY(PBL_DMA_STM32F4_PRIORITY_VERY_HIGH));
  * @endcode
- *
- * The controller's clock is on while a stream runs. The controllers cannot reach the
- * core-coupled memory, so a buffer there fails with @c -EINVAL. Stopping a stream that does not
- * stop fails with @c -ETIMEDOUT.
  * @{
  */
 
@@ -54,7 +45,7 @@ struct pbl_dma_stm32f4_stream {
   uint32_t cr;
   /* Count of the transfers started */
   uint32_t seq;
-  /* A transfer is running, holding the controller's clock */
+  /* Transfer running */
   bool running;
 };
 

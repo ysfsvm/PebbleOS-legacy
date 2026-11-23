@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <errno.h>
@@ -11,7 +11,6 @@
 
 #include <clar.h>
 
-// The board's bus clocks: PCLK1 24 MHz, PCLK2 48 MHz
 #define CLK_PCLK1 0U
 #define CLK_PCLK2 1U
 
@@ -32,7 +31,6 @@ int pbl_clk_get_rate(const struct pbl_clk *clk, uint64_t *rate_mhz) {
   return 0;
 }
 
-// Pin states: which one each port selected
 static const struct pbl_pinctrl_state s_usart3_default;
 static const struct pbl_pinctrl_state s_usart1_default;
 static const struct pbl_pinctrl_state *s_selected[4];
@@ -62,13 +60,6 @@ void pbl_irq_enable(pbl_irq_t irq) {
 }
 
 #include "../../../drivers/uart/stm32.c"
-
-// Registers
-////////////////////////////////////////////////////////////////////////////////
-// Reading DR takes the received byte and, after SR was read, clears the error flags. Writing DR
-// takes TXE and TC until the test gives them back: TXE after s_txe_after SR reads, TC after
-// s_tc_after. Line settings written while the USART is enabled are noted in s_live_write, the
-// USART disabled before a byte written here has left in s_cut_byte.
 
 #define USART3_BASE 0x40004800U
 #define USART1_BASE 0x40011000U
@@ -116,7 +107,6 @@ uint32_t fake_mmio_readl(uintptr_t addr) {
   uint32_t *sr = prv_fake_reg(prv_base(addr) + STM32F4_USART_SR_OFFSET);
 
   if (addr == prv_base(addr) + STM32F4_USART_SR_OFFSET) {
-    // A wait for a flag that never comes
     cl_assert(++s_sr_reads < 1000);
     if (s_txe_after > 0 && --s_txe_after == 0) {
       *sr |= STM32F4_USART_SR_TXE;
@@ -166,15 +156,11 @@ static uint32_t prv_usart(uintptr_t base, uint32_t offset) {
   return *prv_fake_reg(base + offset);
 }
 
-//! A byte arrives with @p errors, then the port's interrupt is taken if it is enabled.
 static void prv_receive(const struct pbl_uart_stm32 *usart, uint8_t c, uint32_t errors) {
   s_rx_data = c;
   *prv_fake_reg(usart->base + STM32F4_USART_SR_OFFSET) |= STM32F4_USART_SR_RXNE | errors;
   pbl_uart_stm32_irq_handler(usart);
 }
-
-// Callback
-////////////////////////////////////////////////////////////////////////////////
 
 static uint8_t s_rx[16];
 static int s_num_rx;
@@ -187,9 +173,6 @@ static void prv_rx(const struct pbl_uart *uart, uint8_t c, void *arg) {
     cl_assert_equal_i(pbl_uart_rx_disable(uart), 0);
   }
 }
-
-// Tests
-////////////////////////////////////////////////////////////////////////////////
 
 void test_uart_stm32__initialize(void) {
   memset(s_regs, 0, sizeof(s_regs));
@@ -210,7 +193,6 @@ void test_uart_stm32__initialize(void) {
   s_num_rx = 0;
   s_disable_in_cb = false;
 
-  // From reset, TXE and TC are set
   for (uintptr_t base = USART2_BASE; base != 0U;
        base = base == USART2_BASE ? USART3_BASE : (base == USART3_BASE ? USART1_BASE : 0U)) {
     *prv_fake_reg(base + STM32F4_USART_SR_OFFSET) = STM32F4_USART_SR_TXE | STM32F4_USART_SR_TC;
@@ -241,7 +223,6 @@ void test_uart_stm32__init_sets_up_8n1_at_the_board_rate(void) {
                     STM32F4_USART_CR1_UE | STM32F4_USART_CR1_TE | STM32F4_USART_CR1_RE);
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_CR2_OFFSET), 0U);
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_CR3_OFFSET), 0U);
-  // 24 MHz / 115200 = 208.3: mantissa 13, fraction 0, as the ST library computed it
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_BRR_OFFSET), 0xd0U);
   cl_assert(s_irq_enabled[39]);
 }
@@ -252,34 +233,28 @@ void test_uart_stm32__baud_divisors(void) {
   cl_assert_equal_i(pbl_device_init(&dt_usart3.dev), 0);
   cl_assert_equal_i(pbl_device_init(&dt_usart1.dev), 0);
 
-  // 24 MHz / 230400 = 104.2
   cl_assert_equal_i(pbl_uart_configure(&dt_usart3, &cfg), 0);
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_BRR_OFFSET), 0x68U);
 
-  // 24 MHz / 57600 = 416.7, rounded up
   cfg.baudrate = 57600;
   cl_assert_equal_i(pbl_uart_configure(&dt_usart3, &cfg), 0);
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_BRR_OFFSET), 0x1a1U);
 
-  // 48 MHz / 921600 = 52.1
   cfg.baudrate = 921600;
   cl_assert_equal_i(pbl_uart_configure(&dt_usart1, &cfg), 0);
   cl_assert_equal_i(prv_usart(USART1_BASE, STM32F4_USART_BRR_OFFSET), 0x34U);
   cl_assert_equal_i(prv_usart(USART1_BASE, STM32F4_USART_CR1_OFFSET) & STM32F4_USART_CR1_OVER8, 0U);
 
-  // 24 MHz / 2 Mbaud = 12: 8x oversampling, USARTDIV 1.5
   cfg.baudrate = 2000000;
   cl_assert_equal_i(pbl_uart_configure(&dt_usart3, &cfg), 0);
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_BRR_OFFSET), 0x14U);
   cl_assert(prv_usart(USART3_BASE, STM32F4_USART_CR1_OFFSET) & STM32F4_USART_CR1_OVER8);
 
-  // Past what 8x oversampling reaches, and below what the mantissa holds
   cfg.baudrate = 4000000;
   cl_assert_equal_i(pbl_uart_configure(&dt_usart3, &cfg), -ENOTSUP);
   cfg.baudrate = 300;
   cl_assert_equal_i(pbl_uart_configure(&dt_usart3, &cfg), -ENOTSUP);
 
-  // The port keeps working, enabled
   cl_assert(prv_usart(USART3_BASE, STM32F4_USART_CR1_OFFSET) & STM32F4_USART_CR1_UE);
 }
 
@@ -297,7 +272,6 @@ void test_uart_stm32__parity_and_flow_control(void) {
   cl_assert_equal_i(pbl_uart_configure(&dt_usart3, &cfg), 0);
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_CR1_OFFSET) & CR1_FRAME, CR1_FRAME);
 
-  // Only a port with RTS and CTS wired takes flow control
   cfg.parity = PBL_UART_PARITY_NONE;
   cfg.flow_ctrl = PBL_UART_FLOW_CTRL_RTS_CTS;
   cl_assert_equal_i(pbl_uart_configure(&dt_usart3, &cfg), -ENOTSUP);
@@ -316,7 +290,6 @@ void test_uart_stm32__poll_out_waits_for_txe(void) {
   pbl_uart_poll_out(&dt_usart3, 'A');
   cl_assert_equal_i(s_num_tx, 1);
 
-  // The byte is still in the transmit register: the next one waits for room, not for the line
   s_sr_reads = 0;
   s_txe_after = 5;
   s_tc_after = 0;
@@ -326,7 +299,6 @@ void test_uart_stm32__poll_out_waits_for_txe(void) {
   cl_assert_equal_i(s_tx[0], 'A');
   cl_assert_equal_i(s_tx[1], 'B');
 
-  // flush waits for TC, which comes after TXE
   s_sr_reads = 0;
   s_txe_after = 1;
   s_tc_after = 3;
@@ -351,7 +323,6 @@ void test_uart_stm32__configure_waits_for_the_last_byte(void) {
 void test_uart_stm32__rx_delivers_bytes_and_counts_errors(void) {
   cl_assert_equal_i(pbl_device_init(&dt_usart3.dev), 0);
 
-  // Disabled: a byte waits in DR
   s_dr_reads = 0;
   prv_receive(&dt_usart3_inst, 'x', 0U);
   cl_assert_equal_i(s_dr_reads, 0);
@@ -369,10 +340,8 @@ void test_uart_stm32__rx_delivers_bytes_and_counts_errors(void) {
   cl_assert_equal_i(s_rx[2], 'z');
   cl_assert_equal_i(dt_usart3_stm32_state.overruns, 1U);
   cl_assert_equal_i(dt_usart3_stm32_state.framing_errors, 1U);
-  // Reading DR cleared the flags
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_SR_OFFSET) & SR_ERRORS, 0U);
 
-  // An overrun with no byte waiting is cleared and counted, and delivers nothing
   s_dr_reads = 0;
   *prv_fake_reg(USART3_BASE + STM32F4_USART_SR_OFFSET) |= STM32F4_USART_SR_ORE;
   pbl_uart_stm32_irq_handler(&dt_usart3_inst);
@@ -381,7 +350,6 @@ void test_uart_stm32__rx_delivers_bytes_and_counts_errors(void) {
   cl_assert_equal_i(dt_usart3_stm32_state.overruns, 2U);
   cl_assert_equal_i(prv_usart(USART3_BASE, STM32F4_USART_SR_OFFSET) & SR_ERRORS, 0U);
 
-  // Nothing pending: DR is left alone
   pbl_uart_stm32_irq_handler(&dt_usart3_inst);
   cl_assert_equal_i(s_dr_reads, 1);
 }
@@ -391,7 +359,6 @@ void test_uart_stm32__rx_disable_holds_bytes_back(void) {
   cl_assert_equal_i(pbl_uart_rx_enable(&dt_usart3, prv_rx, nullptr), 0);
   s_dr_reads = 0;
 
-  // The callback stops reception: the next byte stays in the USART, which keeps receiving
   s_disable_in_cb = true;
   prv_receive(&dt_usart3_inst, '1', 0U);
   cl_assert_equal_i(s_num_rx, 1);
@@ -403,7 +370,6 @@ void test_uart_stm32__rx_disable_holds_bytes_back(void) {
   cl_assert_equal_i(s_num_rx, 1);
   cl_assert_equal_i(s_dr_reads, 1);
 
-  // Enabled again, the held byte comes
   s_disable_in_cb = false;
   cl_assert_equal_i(pbl_uart_rx_enable(&dt_usart3, prv_rx, nullptr), 0);
   pbl_uart_stm32_irq_handler(&dt_usart3_inst);
@@ -414,7 +380,6 @@ void test_uart_stm32__rx_disable_holds_bytes_back(void) {
 void test_uart_stm32__init_does_not_wait_for_a_byte_it_did_not_send(void) {
   const struct pbl_uart_config cfg = {.baudrate = 115200};
 
-  // Left enabled by an earlier stage with TC clear, which nothing here will set
   *prv_fake_reg(USART3_BASE + STM32F4_USART_CR1_OFFSET) =
       STM32F4_USART_CR1_UE | STM32F4_USART_CR1_TE;
   *prv_fake_reg(USART3_BASE + STM32F4_USART_SR_OFFSET) = 0U;
@@ -446,7 +411,6 @@ void test_uart_stm32__early_console_then_device_init(void) {
   pbl_uart_poll_out(&dt_usart3, 'e');
   cl_assert_equal_i(s_num_tx, 1);
 
-  // The device init waits for the byte to leave and keeps the early line settings
   s_sr_reads = 0;
   s_txe_after = 1;
   s_tc_after = 2;

@@ -100,10 +100,10 @@ static volatile bool s_waiting_busy;
 
 static void prv_busy_isr(void *arg);
 
-//! Falling edges of BUSY (the FPGA can take the next line) and of CDONE.
+//! BUSY and CDONE falling edges
 static struct pbl_irq_spec s_busy_irq;
 static struct pbl_irq_spec s_cdone_irq;
-//! Without BUSY's interrupt, BUSY is polled.
+//! BUSY interrupt in use, else polled
 static bool s_busy_irq_ok;
 
 static int prv_request_irq(const struct pbl_gpio *gpio, pbl_intc_handler_t handler,
@@ -416,8 +416,6 @@ static int prv_init(const struct pbl_display *disp) {
   pbl_gpio_configure(&cfg->rail_6v6, PBL_GPIO_OUTPUT);
   pbl_gpio_configure(&cfg->rail_4v5, PBL_GPIO_OUTPUT);
 
-  // Without its interrupts the panel still runs, rather than staying dark: BUSY is polled and
-  // CDONE checked before each frame.
   int ret = prv_request_irq(&cfg->busy, prv_busy_isr, &s_busy_irq);
   if (ret == 0) {
     s_busy_irq_ok = true;
@@ -533,7 +531,7 @@ static void prv_end_frame(void) {
   pbl_timer_stop(&s_frame_timer);
 }
 
-//! From an interrupt: end the frame on a DMA error.
+//! End the frame on a DMA error, from an interrupt.
 static void prv_fail_frame(int status) {
   prv_end_frame();
   PBL_LOG_WRN("Display DMA failed at line %d: %d", s_sent, status);
@@ -596,7 +594,6 @@ static void prv_dma_done(void *arg, int status) {
     return;
   }
   if (prv_busy() && !s_busy_irq_ok) {
-    // A BUSY stuck high is left to the frame timeout.
     if (!prv_wait_not_busy()) {
       return;
     }

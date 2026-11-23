@@ -491,7 +491,6 @@ void arch_idle(pbl_tick_t max_ticks) {
   arm_irq_disable();
   if (sched_idle_confirm()) {
 #ifdef CONFIG_TASK_WDT_HARDLOCKUP
-    // An idle CPU is not locked up: the detector's timer would only wake it up
     arm_hardlockup_idle_enter();
 #endif
     timekeeping_idle(max_ticks);

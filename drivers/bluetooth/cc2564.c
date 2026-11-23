@@ -408,7 +408,7 @@ void cc2564_hold_rts(bool hold) {
   }
 }
 
-//! The controller pulses its RTS (our CTS) to wake us.
+//! Controller wake-up on CTS
 static struct pbl_irq_spec s_cts_irq;
 
 void cc2564_cts_wake_enable(pbl_intc_handler_t cb) {

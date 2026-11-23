@@ -79,7 +79,6 @@ static void prv_dma_handler(void *arg, int status) {
     return;
   }
 
-  // The stream stopped itself; the rest is released by prv_stop().
   if (status != 0) {
     state->running = false;
     I2S_Cmd(pdm->spi, DISABLE);
@@ -88,12 +87,11 @@ static void prv_dma_handler(void *arg, int status) {
     return;
   }
 
-  // The stream is past the middle of the ring when its first half has just ended.
+  // Half that just ended
   if (pbl_dma_tx_status(pdm->dma, &residue) != 0 || residue == 0U) {
     return;
   }
   half = residue > sizeof(state->in_buffer[0]) ? 1U : 0U;
-  // Both halves ended before this interrupt ran: the other one is being overwritten.
   if (half == state->half) {
     pbl_audio_report_xrun(card);
     return;

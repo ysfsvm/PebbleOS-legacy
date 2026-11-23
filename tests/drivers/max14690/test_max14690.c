@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "../../../drivers/pmic/max14690.c"
@@ -8,8 +8,6 @@
 
 #include <clar.h>
 
-// The MAX14690's init: whatever happens to its interrupt, the PMIC keeps powering the display.
-
 static const struct pbl_i2c_dev s_i2c;
 static const struct pbl_max14690 s_pmic = {.i2c = &s_i2c};
 const struct pbl_max14690 *const MAX14690 = &s_pmic;
@@ -17,9 +15,6 @@ const struct pbl_max14690 *const MAX14690 = &s_pmic;
 static uint8_t s_regs[0x20];
 static int s_irq_ret;
 static bool s_line_enabled;
-
-// The bus: a write is [register, value], a read writes the register then reads it
-////////////////////////////////////////////////////////////////////////////////
 
 int pbl_i2c_transfer(const struct pbl_i2c_dev *dev, struct pbl_i2c_msg *msgs, uint8_t num_msgs) {
   const uint8_t reg = msgs[0].buf[0];
@@ -32,9 +27,6 @@ int pbl_i2c_transfer(const struct pbl_i2c_dev *dev, struct pbl_i2c_msg *msgs, ui
   }
   return 0;
 }
-
-// The rest of the system
-////////////////////////////////////////////////////////////////////////////////
 
 int pbl_gpio_configure(const struct pbl_gpio *gpio, uint32_t flags) {
   return 0;
@@ -105,9 +97,6 @@ bool pbl_kernel_is_running(void) {
 void event_put(PebbleEvent *event) {
 }
 
-// Tests
-////////////////////////////////////////////////////////////////////////////////
-
 #define LDO_ENABLED 0x02U
 
 void test_max14690__initialize(void) {
@@ -125,7 +114,6 @@ void test_max14690__init(void) {
   cl_assert(s_regs[PmicRegisters_LDO2_CONFIG] & LDO_ENABLED);
 }
 
-//! LDO2 powers the display FPGA: without it the screen stays dark.
 void test_max14690__the_display_rail_comes_up_without_the_interrupt(void) {
   s_irq_ret = -ENOTSUP;
 

@@ -37,8 +37,7 @@ static_assert(PART_FILESYSTEM_OFFSET + PART_FILESYSTEM_SIZE == PBL_MIB(16),
 
 #ifdef CONFIG_QEMU_SERIAL
 // The emulator's Pebble protocol and control channel, on USART2 as in the
-// stock firmware's emulator build. No pins: QEMU connects it directly. Not in
-// the tree, which describes the watch.
+// stock firmware's emulator build. No pins: QEMU connects it directly.
 ///////////////////////////////////////////////////////////////////////////////
 
 PBL_UART_STM32_DEFINE(snowy_qemu_uart, "usart2", USART2_BASE, PBL_SOC_IRQN_USART2,
@@ -66,10 +65,9 @@ static UARTDevice BT_HCI_UART_DEVICE = {
   .irqn = PBL_IRQN(USART1),
 };
 UARTDevice *const BOARD_BT_HCI_UART_DEV = &BT_HCI_UART_DEVICE;
-// Above the console's CONFIG_UART_STM32_IRQ_PRIO, as the stock firmware had it.
 PBL_IRQ_CONNECT(USART1, 12, uart_irq_handler, &BT_HCI_UART_DEVICE, 0);
 
-// The BT_HCI_UART role's port: defined, never registered, without operations.
+// The BT_HCI_UART role's port: defined, never registered.
 PBL_UART_STATE_DEFINE(snowy_bt_hci_port);
 const struct pbl_uart snowy_bt_hci_port =
     PBL_UART_INIT(snowy_bt_hci_port, "usart1", nullptr, 115200, nullptr);

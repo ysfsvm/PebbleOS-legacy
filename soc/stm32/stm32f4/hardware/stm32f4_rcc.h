@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
@@ -31,5 +31,5 @@
 
 #define STM32F4_RCC_DCKCFGR_TIMPRE PBL_BIT(24)
 
-/* The internal RC oscillator */
+/* Internal RC oscillator */
 #define STM32F4_HSI_HZ 16000000U

@@ -1,9 +1,9 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
 
-/* Clocks of the STM32F4 RCC other than the gates, with the values of the upstream binding */
+/* STM32F4 RCC clocks other than gates, upstream binding values */
 #define SYSTICK         0
 #define FCLK            1
 #define CLK_LSI         2

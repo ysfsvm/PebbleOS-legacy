@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <stdint.h>
@@ -6,7 +6,6 @@
 
 #include <clar.h>
 
-// The vectors of the STM32F4 the driver connects
 #define PBL_SOC_IRQN_EXTI0     6
 #define PBL_SOC_IRQN_EXTI1     7
 #define PBL_SOC_IRQN_EXTI2     8
@@ -16,12 +15,6 @@
 #define PBL_SOC_IRQN_EXTI15_10 40
 
 #include "../../../drivers/gpio/stm32.c"
-
-// Registers
-////////////////////////////////////////////////////////////////////////////////
-// The EXTI as the reference manual has it: an edge sets a line's pending bit only while the line
-// is unmasked, writing 1 clears a pending bit, and a vector is requested while any of its lines
-// is pending, masked or not.
 
 #define EXTI_BASE   0x40013c00U
 #define SYSCFG_BASE 0x40013800U
@@ -73,7 +66,6 @@ void pbl_isr_40(void);
 
 #define MAX_ENTRIES 100
 
-//! Take EXTI15_10 as the NVIC does: again for as long as the request stays. Returns the entries.
 static int prv_run_exti15_10(void) {
   int entries = 0;
 
@@ -83,9 +75,6 @@ static int prv_run_exti15_10(void) {
   }
   return entries;
 }
-
-// Kernel
-////////////////////////////////////////////////////////////////////////////////
 
 static int s_lock_depth;
 static bool s_nvic_enabled[64];
@@ -105,9 +94,6 @@ void pbl_irq_enable(pbl_irq_t irq) {
 int pbl_clk_enable(const struct pbl_clk *clk) {
   return 0;
 }
-
-// Tests
-////////////////////////////////////////////////////////////////////////////////
 
 static struct pbl_irq_spec s_cts;
 static int s_handler_calls;
@@ -146,7 +132,6 @@ void test_gpio_stm32__routes_and_triggers(void) {
   cl_assert_equal_i(pbl_gpio_to_irq(&s_pin, PBL_IRQ_TYPE_EDGE_FALLING, &irq), 0);
   cl_assert_equal_i(pbl_intc_request(&irq, prv_count, nullptr), 0);
 
-  // Port G (6) on line 10, in EXTICR3
   cl_assert_equal_i(*prv_reg(SYSCFG_BASE + 0x10U) & 0x0f00U, 0x0600U);
   cl_assert_equal_i(prv_exti(STM32F4_EXTI_FTSR_OFFSET), PBL_BIT(10));
   cl_assert_equal_i(prv_exti(STM32F4_EXTI_RTSR_OFFSET), 0U);
@@ -169,8 +154,6 @@ void test_gpio_stm32__an_edge_calls_the_handler_once(void) {
   cl_assert_equal_i(prv_exti(STM32F4_EXTI_PR_OFFSET), 0U);
 }
 
-//! The CC2564's wake pulse on CTS: its second edge comes while the handler runs, before it masks
-//! the line, as when the handler runs late after STOP.
 static void prv_wake(void *arg) {
   s_handler_calls++;
   if (s_second_edge++ == 0) {
@@ -179,12 +162,10 @@ static void prv_wake(void *arg) {
   (void)pbl_intc_disable(&s_cts);
 }
 
-void test_gpio_stm32__a_line_masked_while_pending_is_cleared(void) {
+void test_gpio_stm32__a_line_masked_by_its_handler_while_pending_is_cleared(void) {
   prv_request_cts(prv_wake);
 
   prv_edge(11, false);
-  // Without clearing the pending bit of the masked line, the request stays and the vector is
-  // taken until the watchdog resets the watch.
   cl_assert(prv_run_exti15_10() < MAX_ENTRIES);
   cl_assert_equal_i(s_handler_calls, 1);
   cl_assert_equal_i(prv_exti(STM32F4_EXTI_PR_OFFSET), 0U);
@@ -194,7 +175,6 @@ void test_gpio_stm32__a_masked_pending_line_is_cleared_without_its_handler(void)
   prv_request_cts(prv_count);
   cl_assert_equal_i(pbl_intc_disable(&s_cts), 0);
 
-  // A line left pending while masked, however it came to be
   *prv_reg(EXTI_BASE + STM32F4_EXTI_PR_OFFSET) |= PBL_BIT(11);
   cl_assert_equal_i(prv_run_exti15_10(), 1);
   cl_assert_equal_i(s_handler_calls, 0);

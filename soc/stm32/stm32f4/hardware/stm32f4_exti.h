@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
@@ -10,5 +10,5 @@
 #define STM32F4_EXTI_FTSR_OFFSET 0x0c
 #define STM32F4_EXTI_PR_OFFSET   0x14
 
-/* Lines 0-15 are the pins: line N takes pin N of the port SYSCFG routes to it */
+/* Lines 0-15: pins */
 #define STM32F4_EXTI_NUM_PIN_LINES 16U

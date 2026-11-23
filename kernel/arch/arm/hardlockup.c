@@ -1,11 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-//! The hard lockup detector's timer on Cortex-M: SysTick, at the most urgent priority, so that
-//! the kernel's interrupt lock (BASEPRI) and every interrupt handler leave it running. It counts
-//! CPU cycles, stops in deep sleep, and is stopped while the CPU idles, which it would otherwise
-//! wake up every period (and make each STOP mode entry it lands in return at once). The system
-//! timer must not be SysTick.
+//! Hard lockup detector timer: SysTick at the most urgent priority.
 
 #include "arm_cpu.h"
 
@@ -56,7 +52,7 @@ uint32_t arch_hardlockup_start(uint32_t period_ms) {
 
 static bool s_idle_stopped;
 
-// With PRIMASK set, so SysTick cannot be taken in between
+// Called with PRIMASK set
 void arm_hardlockup_idle_enter(void) {
   const uint32_t csr = arch_readl(SYST_CSR);
 
@@ -64,7 +60,6 @@ void arm_hardlockup_idle_enter(void) {
     return;
   }
   arch_writel(csr & ~SYST_CSR_ENABLE, SYST_CSR);
-  // A period that ended just now would end the wait at once
   arch_writel(ARM_SCB_ICSR_PENDSTCLR, ARM_SCB_ICSR);
   s_idle_stopped = true;
 }
@@ -81,8 +76,7 @@ PBL_EXTERNALLY_VISIBLE void arch_hardlockup_tick_c(const uint32_t *frame) {
   pbl_task_wdt_hardlockup_tick(frame[FRAME_PC], frame[FRAME_LR], frame[FRAME_XPSR] & IPSR_MASK);
 }
 
-//! The interrupted code's frame is on the stack its EXC_RETURN names: the process stack for a
-//! thread, the main stack for an exception handler.
+//! Interrupted frame from MSP or PSP, per EXC_RETURN
 void PBL_NAKED SysTick_Handler(void) {
   __asm volatile(
       "  tst lr, #4                 \n"

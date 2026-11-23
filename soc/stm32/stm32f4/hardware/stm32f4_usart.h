@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
@@ -15,7 +15,7 @@
 #define STM32F4_USART_CR3_OFFSET  0x14
 #define STM32F4_USART_GTPR_OFFSET 0x18
 
-/* SR: reading it, then DR, clears PE, FE, NF and ORE */
+/* SR */
 #define STM32F4_USART_SR_PE   PBL_BIT(0)
 #define STM32F4_USART_SR_FE   PBL_BIT(1)
 #define STM32F4_USART_SR_NF   PBL_BIT(2)
@@ -27,7 +27,7 @@
 
 #define STM32F4_USART_DR_MASK PBL_GENMASK(8, 0)
 
-/* BRR: USARTDIV as a 12-bit mantissa and a 4-bit fraction, 3 bits with OVER8 */
+/* BRR */
 #define STM32F4_USART_BRR_FRACTION_MASK PBL_GENMASK(3, 0)
 #define STM32F4_USART_BRR_MANTISSA_MASK PBL_GENMASK(15, 4)
 

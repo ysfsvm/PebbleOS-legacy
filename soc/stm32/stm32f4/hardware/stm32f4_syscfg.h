@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
@@ -7,7 +7,7 @@
 
 /* Register offsets */
 
-/* EXTICR1-4: the port of each EXTI pin line, four lines a register */
+/* EXTICR1-4 */
 #define STM32F4_SYSCFG_EXTICR_OFFSET(line) (0x08 + 4 * ((line) / 4))
 
 /* Register bit definitions */

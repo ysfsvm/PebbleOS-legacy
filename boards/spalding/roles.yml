@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 retake
 # SPDX-License-Identifier: Apache-2.0
 
-# Devices not in the tree are defined in C, in snowy/snowy.c, which spalding.c includes.
+# Devices not in the tree are defined in C, in snowy/snowy.c.
 console_uart: usart3
 qemu_uart:
   symbol: SNOWY_QEMU_UART

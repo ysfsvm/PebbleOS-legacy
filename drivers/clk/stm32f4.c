@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <errno.h>
@@ -13,23 +13,22 @@
 #include <dt-bindings/clock/stm32fx-clock.h>
 #include <hardware/stm32f4_rcc.h>
 
-// The bus clocks, after the clocks of the binding
+// Bus clocks
 #define ID_HSI    STM32F4_CLK_ID(1, CLK_HSI)
 #define ID_SYSCLK STM32F4_CLK_ID(1, CLK_SYSCLK)
 #define ID_HCLK   STM32F4_CLK_ID(1, END_PRIMARY_CLK)
 #define ID_PCLK1  STM32F4_CLK_ID(1, END_PRIMARY_CLK + 1)
 #define ID_PCLK2  STM32F4_CLK_ID(1, END_PRIMARY_CLK + 2)
-// The timer kernel clocks of the APB1 and APB2 timers
+// Timer kernel clocks
 #define ID_TIMCLK1 STM32F4_CLK_ID(1, END_PRIMARY_CLK + 3)
 #define ID_TIMCLK2 STM32F4_CLK_ID(1, END_PRIMARY_CLK + 4)
 #define ID_COUNT   STM32F4_CLK_ID(1, END_PRIMARY_CLK + 5)
 
-// Gates are 32 per bus: AHB1, AHB2, AHB3, APB1, APB2
+// 32 gates per bus: AHB1, AHB2, AHB3, APB1, APB2
 #define GATE_BUS(id) ((id) >> 5)
 #define BUS_APB1     3U
 #define BUS_APB2     4U
 
-// The timer gates: TIM2-7 and TIM12-14 on APB1, TIM1, TIM8 and TIM9-11 on APB2
 #define APB1_TIMERS 0x000001ffU
 #define APB2_TIMERS 0x00070003U
 
@@ -44,7 +43,7 @@ static const struct pbl_clk_stm32f4 *prv_rcc(const struct pbl_clk_controller *ct
   return container_of(ctrl, const struct pbl_clk_stm32f4, ctrl);
 }
 
-// The clocks between the oscillators and the gates, which always run
+// Always running
 static bool prv_is_bus_clk(uint32_t id) {
   return id == ID_HSI || id == ID_SYSCLK || id == ID_HCLK || id == ID_PCLK1 || id == ID_PCLK2 ||
          id == ID_TIMCLK1 || id == ID_TIMCLK2;
@@ -57,8 +56,6 @@ static uintptr_t prv_enr(const struct pbl_clk_stm32f4 *rcc, uint32_t id) {
   return rcc->base + STM32F4_RCC_ENR_OFFSET(bus >= BUS_APB1 ? bus + 1U : bus);
 }
 
-// The class calls the ops with interrupts locked, which keeps the read-modify-writes of the
-// enable registers whole against soc_stm32_clock_set(), which locks them too.
 static int prv_enable(const struct pbl_clk_controller *ctrl, uint32_t id) {
   const struct pbl_clk_stm32f4 *rcc = prv_rcc(ctrl);
   uintptr_t enr;
@@ -69,7 +66,7 @@ static int prv_enable(const struct pbl_clk_controller *ctrl, uint32_t id) {
 
   enr = prv_enr(rcc, id);
   pbl_writel(pbl_readl(enr) | PBL_BIT(id & 31U), enr);
-  // A peripheral can be accessed two bus cycles after its clock is enabled
+  // Delay before access
   (void)pbl_readl(enr);
 
   return 0;
@@ -95,7 +92,7 @@ static uint32_t prv_ahb_div(uint32_t cfgr) {
   if (hpre < 8U) {
     return 1U;
   }
-  // 2, 4, 8, 16, then 64 to 512: there is no 32
+  // 2 to 16, then 64 to 512
   return 1U << (hpre - 7U + (hpre >= 12U ? 1U : 0U));
 }
 
@@ -103,8 +100,7 @@ static uint32_t prv_apb_div(uint32_t ppre) {
   return ppre < 4U ? 1U : 1U << (ppre - 3U);
 }
 
-// Timers run at PCLK with an APB divider of 1, else at twice PCLK; with TIMPRE, at HCLK up to a
-// divider of 4, else at four times PCLK
+// Timer clock as a multiple of PCLK
 static uint32_t prv_tim_mul(uint32_t ppre, uint32_t dckcfgr) {
   uint32_t div = prv_apb_div(ppre);
 
@@ -115,8 +111,6 @@ static uint32_t prv_tim_mul(uint32_t ppre, uint32_t dckcfgr) {
   return div == 1U ? 1U : 2U;
 }
 
-// SYSCLK is the root: STOP wakes on the HSI before the PLL is back, so its source changes
-// under the class, which counts the users of a parent.
 static int prv_sysclk_mhz(const struct pbl_clk_stm32f4 *rcc, uint64_t *rate_mhz) {
   uint32_t cfgr = pbl_readl(rcc->base + STM32F4_RCC_CFGR_OFFSET);
   uint32_t pllcfgr = pbl_readl(rcc->base + STM32F4_RCC_PLLCFGR_OFFSET);
@@ -127,7 +121,7 @@ static int prv_sysclk_mhz(const struct pbl_clk_stm32f4 *rcc, uint64_t *rate_mhz)
       *rate_mhz = STM32F4_HSI_HZ * MHZ_PER_HZ;
       return 0;
     case STM32F4_RCC_CFGR_SWS_PLL:
-      // No board runs the PLL from an HSE
+      // HSE not supported
       if ((pllcfgr & STM32F4_RCC_PLLCFGR_PLLSRC_HSE) != 0U) {
         return -ENOTSUP;
       }

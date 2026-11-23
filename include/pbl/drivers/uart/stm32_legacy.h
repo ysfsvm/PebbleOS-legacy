@@ -9,9 +9,7 @@
 #include <pbl/drivers/gpio.h>
 #include <pbl/soc/stm32/cmsis.h>
 
-//! STM32F4 USART calls of the legacy HCI transport and its controller driver, which drive their
-//! port directly: per-byte RX with error flags, transmit state polling, interrupt-driven
-//! transmission and one-direction set-ups. Other ports are @ref drivers_uart_stm32 devices.
+//! STM32F4 USART calls of the legacy HCI transport.
 
 typedef struct UARTRXErrorFlags {
   union {

@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 retake */
+/* SPDX-FileCopyrightText: 2026 Yusuf Sevim */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
@@ -26,9 +26,6 @@
  *                          STM32_PINMUX('A', 9, AF7) | PBL_PINCTRL_STM32_SLEW(2),
  *                          STM32_PINMUX('A', 10, AF7) | PBL_PINCTRL_STM32_PULL_UP);
  * @endcode
- *
- * A pin takes the port's clock through the port, so states can be selected before the devices
- * are initialized.
  * @{
  */
 

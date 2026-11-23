@@ -16,12 +16,7 @@
  * @ingroup drivers_uart
  * @brief @ref drivers_uart driver for the STM32F4 USART.
  *
- * Bytes are sent polled and received from the receive interrupt. A byte received with a framing
- * error is delivered all the same; overruns and framing errors are counted. Reception stays
- * enabled in the USART while the class holds bytes back, so with hardware flow control the peer
- * waits. RTS and CTS flow control needs a port whose lines are wired (@c uart-has-rtscts). A port
- * without pins, as a QEMU one, has no pin state. An instance connects its interrupt itself, with
- * priority @c CONFIG_UART_STM32_IRQ_PRIO:
+ * Polled TX, interrupt-driven RX:
  *
  * @code{.c}
  * PBL_UART_STM32_DEFINE(s_usart3, "usart3", 0x40004800, 39,
