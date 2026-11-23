@@ -318,6 +318,14 @@ void test_hci_uart_legacy__initialize(void) {
   s_tx_stall = false;
   s_reboot_requested = false;
   s_hcill = HcillAwake;
+  s_rx_head = 0U;
+  s_rx_tail = 0U;
+#ifdef CONFIG_BT_CC2564_DIAG
+  s_rx_bytes = 0U;
+  s_rx_overruns = 0U;
+  s_rx_framing_errors = 0U;
+  s_rx_noise_errors = 0U;
+#endif
   prv_uart_start();
 }
 
@@ -371,4 +379,29 @@ void test_hci_uart_legacy__host_timeout_power_cycle_leaves_host_alone(void) {
 
   cl_assert_equal_i(s_boots, 1);
   cl_assert_equal_i(s_host_resets, 0);
+}
+
+void test_hci_uart_legacy__rx_bytes_are_stored_whatever_the_error_flags(void) {
+  const UARTRXErrorFlags clean = {0};
+  const UARTRXErrorFlags errors = {
+    .overrun_error = true,
+    .framing_error = true,
+    .noise_detected = true,
+  };
+
+  prv_rx_irq_handler(BOARD_BT_HCI_UART_DEV, 0x04, &clean);
+  prv_rx_irq_handler(BOARD_BT_HCI_UART_DEV, 0x0e, &errors);
+  prv_rx_irq_handler(BOARD_BT_HCI_UART_DEV, 0x30, &clean);
+
+  cl_assert_equal_i(s_rx_head, 3);
+  cl_assert_equal_i(s_rx_tail, 0);
+  cl_assert_equal_i(s_rx_ring[0], 0x04);
+  cl_assert_equal_i(s_rx_ring[1], 0x0e);
+  cl_assert_equal_i(s_rx_ring[2], 0x30);
+  cl_assert(!s_rx_paused);
+#ifdef CONFIG_BT_CC2564_DIAG
+  char diag[PBL_BT_HCI_UART_DIAG_LEN];
+  pbl_bt_hci_uart_copy_diag(diag, sizeof(diag));
+  cl_assert_equal_s(diag, "rx3 o1 f1 n1 ev0 cp0 A z0 c0 h0 r0 f0 i0/0 s0/0");
+#endif
 }

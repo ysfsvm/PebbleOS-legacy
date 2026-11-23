@@ -109,3 +109,16 @@ uint16_t pbl_bt_hci_uart_le_acl_len_reported(void);
  * @param len Size of @p buf.
  */
 void pbl_bt_hci_uart_copy_rx_stats(char *buf, size_t len);
+
+#ifdef CONFIG_BT_CC2564_DIAG
+/** @brief Room for pbl_bt_hci_uart_copy_diag(). */
+#define PBL_BT_HCI_UART_DIAG_LEN 96U
+
+/**
+ * @brief Format the HCI UART and bus counters.
+ *
+ * @param[out] buf Buffer for the string.
+ * @param len Size of @p buf.
+ */
+void pbl_bt_hci_uart_copy_diag(char *buf, size_t len);
+#endif

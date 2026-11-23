@@ -49,6 +49,9 @@ struct pbl_i2c_stm32_state {
   uint16_t addr;
   uint32_t idx;
   bool stop_blocked;
+#ifdef CONFIG_I2C_STM32_STATS
+  uint32_t start_cycles;
+#endif
 };
 /** @endcond */
 
@@ -132,5 +135,15 @@ void pbl_i2c_stm32_ev_irq_handler(const struct pbl_i2c_stm32 *i2c);
  * @param i2c Bus.
  */
 void pbl_i2c_stm32_er_irq_handler(const struct pbl_i2c_stm32 *i2c);
+
+#ifdef CONFIG_I2C_STM32_STATS
+/**
+ * @brief Transfers of all STM32F4 I2C buses since boot, and the longest one.
+ *
+ * @param[out] count Transfers started.
+ * @param[out] max_us Longest transfer, in microseconds.
+ */
+void pbl_i2c_stm32_stats(uint32_t *count, uint32_t *max_us);
+#endif
 
 /** @} */

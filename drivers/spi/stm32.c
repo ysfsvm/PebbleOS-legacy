@@ -6,6 +6,7 @@
 #include <pbl/devicetree.h>
 #include <pbl/drivers/spi/stm32.h>
 #include <pbl/kernel/mmio.h>
+#include <pbl/kernel/time.h>
 #include <pbl/util/bits.h>
 #include <pbl/util/misc.h>
 
@@ -108,12 +109,43 @@ static int prv_configure(const struct pbl_spi_bus *bus, const struct pbl_spi_dev
   return 0;
 }
 
+#ifdef CONFIG_SPI_STM32_STATS
+static volatile uint32_t s_xfers;
+static volatile uint32_t s_xfer_max_us;
+
+void pbl_spi_stm32_stats(uint32_t *count, uint32_t *max_us) {
+  *count = s_xfers;
+  *max_us = s_xfer_max_us;
+}
+
+static void prv_stats_start(const struct pbl_spi_stm32 *spi) {
+  s_xfers++;
+  spi->state->start_cycles = pbl_cycle_get_32();
+}
+
+static void prv_stats_end(const struct pbl_spi_stm32 *spi) {
+  const uint32_t us = (uint32_t)((uint64_t)(pbl_cycle_get_32() - spi->state->start_cycles) *
+                                 1000000U / pbl_cycles_per_sec());
+
+  if (us > s_xfer_max_us) {
+    s_xfer_max_us = us;
+  }
+}
+#else
+static inline void prv_stats_start(const struct pbl_spi_stm32 *spi) {
+}
+
+static inline void prv_stats_end(const struct pbl_spi_stm32 *spi) {
+}
+#endif
+
 // CR1 with the block off, then SPE
 static void prv_enable(const struct pbl_spi_bus *bus) {
   const struct pbl_spi_stm32 *spi = prv_spi(bus);
   struct pbl_spi_stm32_state *state = spi->state;
 
   (void)pbl_clk_enable(&spi->clk);
+  prv_stats_start(spi);
 
   if (state->pending) {
     prv_putreg(spi, STM32F4_SPI_CR1_OFFSET, state->cr1);
@@ -123,6 +155,7 @@ static void prv_enable(const struct pbl_spi_bus *bus) {
 }
 
 static void prv_disable(const struct pbl_spi_bus *bus) {
+  prv_stats_end(prv_spi(bus));
   (void)pbl_clk_disable(&prv_spi(bus)->clk);
 }
 

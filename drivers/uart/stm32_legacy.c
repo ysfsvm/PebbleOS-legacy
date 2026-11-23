@@ -221,6 +221,9 @@ void uart_irq_handler(UARTDevice *dev) {
     const UARTRXErrorFlags err_flags = {
       .overrun_error = uart_has_rx_overrun(dev),
       .framing_error = uart_has_rx_framing_error(dev),
+#ifdef CONFIG_BT_CC2564_DIAG
+      .noise_detected = (dev->periph->SR & USART_SR_NE) != 0U,
+#endif
     };
     const bool has_byte = uart_is_rx_ready(dev);
     // Read DR regardless, to clear the error flags.

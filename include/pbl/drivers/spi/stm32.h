@@ -32,6 +32,9 @@ struct pbl_spi_stm32_state {
   const struct pbl_spi_dev *dev;
   uint32_t cr1;
   bool pending;
+#ifdef CONFIG_SPI_STM32_STATS
+  uint32_t start_cycles;
+#endif
 };
 /** @endcond */
 
@@ -73,5 +76,15 @@ extern const struct pbl_spi_bus_ops pbl_spi_stm32_ops;
     .bus = PBL_SPI_BUS_INIT(sym, _name, &pbl_spi_stm32_ops, nullptr), .state = &sym##_stm32_state, \
     .base = (_base), .clk = _clk, .reset = _reset, .pinctrl = PBL_PINCTRL(_pinctrl, nullptr, 0),   \
   }
+
+#ifdef CONFIG_SPI_STM32_STATS
+/**
+ * @brief Transfers of all STM32F4 SPI buses since boot, and the longest one.
+ *
+ * @param[out] count Transfers, chip select to chip select.
+ * @param[out] max_us Longest transfer, in microseconds.
+ */
+void pbl_spi_stm32_stats(uint32_t *count, uint32_t *max_us);
+#endif
 
 /** @} */

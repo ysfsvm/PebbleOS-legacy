@@ -31,6 +31,12 @@
 #ifdef CONFIG_BT_CONTROLLER_CC2564
 #include <pbl/bluetooth/le_crypto.h>
 #include <pbl/drivers/bluetooth/cc2564.h>
+#ifdef CONFIG_I2C_STM32_STATS
+#include <pbl/drivers/i2c/stm32.h>
+#endif
+#ifdef CONFIG_SPI_STM32_STATS
+#include <pbl/drivers/spi/stm32.h>
+#endif
 #include <pbl/drivers/rtc.h>
 #include <pbl/soc/stm32/sleep.h>
 
@@ -91,6 +97,19 @@ static volatile uint32_t s_acl_tx;
 static volatile uint32_t s_acl_completed;
 static volatile uint8_t s_last_reply_len;
 static char s_reset_snapshot[32];
+
+#ifdef CONFIG_BT_CC2564_DIAG
+#define DIAG_LOG_INTERVAL_MS 30000U
+
+static volatile uint32_t s_rx_bytes;
+static volatile uint32_t s_rx_overruns;
+static volatile uint32_t s_rx_framing_errors;
+static volatile uint32_t s_rx_noise_errors;
+static uint64_t s_last_evt_ms;
+static uint64_t s_last_completed_ms;
+static uint64_t s_diag_logged_ms;
+static char s_diag_logged[PBL_BT_HCI_UART_DIAG_LEN];
+#endif
 
 static inline void prv_trace_append(const char *entry) {
 }
@@ -362,6 +381,9 @@ void pbl_bt_hci_uart_set_local_rpa(const uint8_t *addr) {
 
 static void prv_note_evt(struct ble_hci_ev *ev) {
   s_num_evts++;
+#ifdef CONFIG_BT_CC2564_DIAG
+  s_last_evt_ms = pbl_uptime_ms();
+#endif
 #ifdef CONFIG_BT_CONTROLLER_CC2564
   // First, so the local RPA lands in the enhanced event it may make.
   prv_conn_complete_resolve_peer(ev);
@@ -377,6 +399,9 @@ static void prv_note_evt(struct ble_hci_ev *ev) {
       uint16_t count = entry[2] | (entry[3] << 8);
       s_acl_completed += count;
       prv_note_completed(count);
+#ifdef CONFIG_BT_CC2564_DIAG
+      s_last_completed_ms = s_last_evt_ms;
+#endif
     }
     return;
   }
@@ -415,6 +440,12 @@ static int prv_hci_frame_cb(uint8_t pkt_type, void *data) {
 }
 
 static void prv_rx_irq_handler(UARTDevice *dev, uint8_t data, const UARTRXErrorFlags *err_flags) {
+#ifdef CONFIG_BT_CC2564_DIAG
+  s_rx_bytes++;
+  s_rx_overruns += err_flags->overrun_error;
+  s_rx_framing_errors += err_flags->framing_error;
+  s_rx_noise_errors += err_flags->noise_detected;
+#endif
   uint32_t head = s_rx_head;
   uint32_t next = (head + 1U) % RX_RING_SIZE;
 
@@ -808,6 +839,29 @@ void pbl_bt_hci_uart_controller_power(bool on) {
 }
 #endif
 
+#ifdef CONFIG_BT_CC2564_DIAG
+#define HCI_IDLE_TIMEOUT PBL_MSEC(DIAG_LOG_INTERVAL_MS)
+
+//! At most every DIAG_LOG_INTERVAL_MS, when a counter changed.
+static void prv_diag_log(void) {
+  const uint64_t now = pbl_uptime_ms();
+  char diag[PBL_BT_HCI_UART_DIAG_LEN];
+
+  if (now - s_diag_logged_ms < DIAG_LOG_INTERVAL_MS) {
+    return;
+  }
+  pbl_bt_hci_uart_copy_diag(diag, sizeof(diag));
+  if (strcmp(diag, s_diag_logged) == 0) {
+    return;
+  }
+  strcpy(s_diag_logged, diag);
+  s_diag_logged_ms = now;
+  PBL_LOG_INFO("HCI diag t%lu %s", (unsigned long)(now / 1000U), diag);
+}
+#else
+#define HCI_IDLE_TIMEOUT PBL_FOREVER
+#endif
+
 static void prv_hci_task_main(void *unused) {
 #ifdef CONFIG_BT_CONTROLLER_CC2564
   // Loading TI's init script takes a second or two, so it happens here rather
@@ -829,10 +883,13 @@ static void prv_hci_task_main(void *unused) {
 #ifdef CONFIG_BT_CC2564_SLEEP
     (void)pbl_sem_take(&s_rx_ready, (s_hcill == HcillCtrlWaking)
                                         ? PBL_MSEC(HCILL_CTRL_WAKE_TIMEOUT_MS)
-                                        : PBL_FOREVER);
+                                        : HCI_IDLE_TIMEOUT);
     prv_hcill_check_false_wake();
 #else
-    pbl_sem_take(&s_rx_ready, PBL_FOREVER);
+    pbl_sem_take(&s_rx_ready, HCI_IDLE_TIMEOUT);
+#endif
+#ifdef CONFIG_BT_CC2564_DIAG
+    prv_diag_log();
 #endif
 #ifdef CONFIG_BT_CONTROLLER_CC2564
     if (s_reboot_requested) {
@@ -1028,6 +1085,30 @@ void pbl_bt_hci_uart_copy_rx_stats(char *buf, size_t len) {
   buf[0] = '\0';
 #endif
 }
+
+#ifdef CONFIG_BT_CC2564_DIAG
+void pbl_bt_hci_uart_copy_diag(char *buf, size_t len) {
+  char hcill[32];
+  uint32_t i2c_count = 0U;
+  uint32_t i2c_max_us = 0U;
+  uint32_t spi_count = 0U;
+  uint32_t spi_max_us = 0U;
+
+  pbl_bt_hci_uart_copy_rx_stats(hcill, sizeof(hcill));
+#ifdef CONFIG_I2C_STM32_STATS
+  pbl_i2c_stm32_stats(&i2c_count, &i2c_max_us);
+#endif
+#ifdef CONFIG_SPI_STM32_STATS
+  pbl_spi_stm32_stats(&spi_count, &spi_max_us);
+#endif
+  sniprintf(buf, len, "rx%lu o%lu f%lu n%lu ev%lu cp%lu %s i%lu/%lu s%lu/%lu",
+            (unsigned long)s_rx_bytes, (unsigned long)s_rx_overruns,
+            (unsigned long)s_rx_framing_errors, (unsigned long)s_rx_noise_errors,
+            (unsigned long)(s_last_evt_ms / 1000U), (unsigned long)(s_last_completed_ms / 1000U),
+            hcill, (unsigned long)i2c_count, (unsigned long)i2c_max_us, (unsigned long)spi_count,
+            (unsigned long)spi_max_us);
+}
+#endif
 
 uint16_t pbl_bt_hci_uart_le_acl_len_reported(void) {
   return 0U;

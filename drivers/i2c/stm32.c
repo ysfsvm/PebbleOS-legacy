@@ -12,6 +12,7 @@
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mmio.h>
+#include <pbl/kernel/time.h>
 #include <pbl/soc/stm32/sleep.h>
 #include <pbl/util/math.h>
 #include <pbl/util/misc.h>
@@ -117,6 +118,36 @@ static void prv_setup(const struct pbl_i2c_stm32 *i2c) {
   prv_putreg(i2c, STM32F4_I2C_OAR1_OFFSET, STM32F4_I2C_OAR1_BIT14);
   prv_setbits(i2c, STM32F4_I2C_CR1_OFFSET, STM32F4_I2C_CR1_PE);
 }
+
+#ifdef CONFIG_I2C_STM32_STATS
+static volatile uint32_t s_xfers;
+static volatile uint32_t s_xfer_max_us;
+
+void pbl_i2c_stm32_stats(uint32_t *count, uint32_t *max_us) {
+  *count = s_xfers;
+  *max_us = s_xfer_max_us;
+}
+
+static void prv_stats_start(const struct pbl_i2c_stm32 *i2c) {
+  s_xfers++;
+  i2c->state->start_cycles = pbl_cycle_get_32();
+}
+
+static void prv_stats_end(const struct pbl_i2c_stm32 *i2c) {
+  const uint32_t us = (uint32_t)((uint64_t)(pbl_cycle_get_32() - i2c->state->start_cycles) *
+                                 1000000U / pbl_cycles_per_sec());
+
+  if (us > s_xfer_max_us) {
+    s_xfer_max_us = us;
+  }
+}
+#else
+static inline void prv_stats_start(const struct pbl_i2c_stm32 *i2c) {
+}
+
+static inline void prv_stats_end(const struct pbl_i2c_stm32 *i2c) {
+}
+#endif
 
 static void prv_stop_block(const struct pbl_i2c_stm32 *i2c) {
   pbl_irq_lock();
@@ -277,6 +308,7 @@ static int prv_start(const struct pbl_i2c_bus *bus, uint16_t addr, struct pbl_i2
   state->msg = 0;
   state->addr = addr;
   prv_stop_block(i2c);
+  prv_stats_start(i2c);
 
   prv_begin(i2c);
   prv_setbits(i2c, STM32F4_I2C_CR2_OFFSET, STM32F4_I2C_CR2_ITEVTEN | STM32F4_I2C_CR2_ITERREN);
@@ -291,6 +323,7 @@ static void prv_abort(const struct pbl_i2c_bus *bus) {
   prv_setbits(i2c, STM32F4_I2C_CR1_OFFSET, STM32F4_I2C_CR1_STOP);
   i2c->state->xfer_state = PBL_I2C_STM32_COMPLETE;
   prv_stop_release(i2c);
+  prv_stats_end(i2c);
 }
 
 static void prv_end_transfer_irq(const struct pbl_i2c_stm32 *i2c, int status) {
@@ -298,6 +331,7 @@ static void prv_end_transfer_irq(const struct pbl_i2c_stm32 *i2c, int status) {
   prv_setbits(i2c, STM32F4_I2C_CR1_OFFSET, STM32F4_I2C_CR1_STOP);
   i2c->state->xfer_state = PBL_I2C_STM32_COMPLETE;
   prv_stop_release(i2c);
+  prv_stats_end(i2c);
   pbl_i2c_bus_complete(&i2c->bus, status);
 }
 

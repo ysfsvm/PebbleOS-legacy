@@ -13,22 +13,30 @@ pbl_clar_test(test_le_crypto
     MBEDTLS_CONFIG_FILE="pebble_mbedtls_config.h"
 )
 
-pbl_clar_test(test_hci_uart_legacy
-  INCLUDES
-    tests/subsys/bluetooth/include
-    third_party/nimble/port/include
-    third_party/nimble/mynewt-nimble/nimble/include
-    third_party/nimble/mynewt-nimble/nimble/host/include
-    third_party/nimble/mynewt-nimble/nimble/transport/include
-    third_party/nimble/mynewt-nimble/nimble/transport/common/hci_h4/include
-    third_party/nimble/mynewt-nimble/porting/nimble/include
-    soc/stm32/stm32f4
-  DEFINES
-    CONFIG_BT_LOG_LEVEL=0
-    CONFIG_NIMBLE_LOG_LEVEL=-1
-    CONFIG_BT_HCI_THREAD_PRIO=3
-    CONFIG_BT_HCI_THREAD_STACK_SIZE=1024
-    CONFIG_BT_CONTROLLER_CC2564=1
-    CONFIG_BT_CC2564_SLEEP=1
-    CONFIG_SOC_STM32F4=1
-)
+foreach(variant "" _diag)
+  set(diag_defines "")
+  if(variant STREQUAL "_diag")
+    set(diag_defines CONFIG_BT_CC2564_DIAG=1)
+  endif()
+  pbl_clar_test(test_hci_uart_legacy${variant}
+    SOURCE test_hci_uart_legacy.c
+    INCLUDES
+      tests/subsys/bluetooth/include
+      third_party/nimble/port/include
+      third_party/nimble/mynewt-nimble/nimble/include
+      third_party/nimble/mynewt-nimble/nimble/host/include
+      third_party/nimble/mynewt-nimble/nimble/transport/include
+      third_party/nimble/mynewt-nimble/nimble/transport/common/hci_h4/include
+      third_party/nimble/mynewt-nimble/porting/nimble/include
+      soc/stm32/stm32f4
+    DEFINES
+      CONFIG_BT_LOG_LEVEL=0
+      CONFIG_NIMBLE_LOG_LEVEL=-1
+      CONFIG_BT_HCI_THREAD_PRIO=3
+      CONFIG_BT_HCI_THREAD_STACK_SIZE=1024
+      CONFIG_BT_CONTROLLER_CC2564=1
+      CONFIG_BT_CC2564_SLEEP=1
+      CONFIG_SOC_STM32F4=1
+      ${diag_defines}
+  )
+endforeach()

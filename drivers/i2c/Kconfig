@@ -64,6 +64,13 @@ config I2C_STM32_IRQ_PRIO
     help
       Priority of the controller's event and error interrupts.
 
+config I2C_STM32_STATS
+    bool "Count transfers"
+    depends on I2C_STM32
+    help
+      Count the transfers of all buses and keep the longest one, for
+      pbl_i2c_stm32_stats().
+
 module = DRIVER_I2C
 module-str = I2C
 source "subsys/logging/Kconfig.template.log_level"

@@ -27,6 +27,19 @@ config BT_CC2564_SLEEP
       and the host enter STOP mode meanwhile. Without it the controller
       never sleeps and STOP is blocked while Bluetooth runs.
 
+config BT_CC2564_DIAG
+    bool "Log HCI UART and bus counters"
+    depends on BT_CONTROLLER_CC2564 && BT_HCI_UART_LEGACY
+    imply I2C_STM32_STATS
+    imply SPI_STM32_STATS
+    help
+      Count USART receive errors and bytes, and keep the uptime of the
+      last HCI event and of the last completed ACL packet. They go into
+      the "CC2564 stalled" line and, at most every 30 s and only when one
+      changed, into a line of their own with the eHCILL counters and the
+      I2C and SPI transfer counts. For finding why the controller stops
+      answering; not for release images.
+
 config BT_CC2564_SLEEP_NO_STOP
     bool "Keep the host out of STOP while the controller sleeps"
     depends on BT_CC2564_SLEEP

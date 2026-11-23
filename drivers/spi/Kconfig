@@ -30,6 +30,13 @@ config SPI_STM32
     help
       Support for the STM32F4 SPI block in master mode, polled.
 
+config SPI_STM32_STATS
+    bool "Count transfers"
+    depends on SPI_STM32
+    help
+      Count the transfers of all buses and keep the longest one, for
+      pbl_spi_stm32_stats().
+
 config SPI_SHELL
     bool "Shell commands"
     default DRIVER_SHELL

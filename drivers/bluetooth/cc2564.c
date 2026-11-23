@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <pbl/bluetooth/hci_uart.h>
 #include <pbl/board.h>
 #include <pbl/drivers/bluetooth/cc2564.h>
 #include <pbl/drivers/gpio/stm32.h>
@@ -465,7 +466,13 @@ PBL_SYS_OFF_HANDLER_DEFINE(cc2564_power_off, PBL_SYS_OFF_POWER_OFF, PBL_SYS_OFF_
 void cc2564_report_stall(bool rx_paused, bool evt_waiting) {
   sniprintf(s_status, sizeof(s_status), "Stalled cts%d rxp%d evw%d", pbl_gpio_get(&BOARD_BT_CTS),
             rx_paused, evt_waiting);
+#ifdef CONFIG_BT_CC2564_DIAG
+  char diag[PBL_BT_HCI_UART_DIAG_LEN];
+  pbl_bt_hci_uart_copy_diag(diag, sizeof(diag));
+  PBL_LOG_ERR("CC2564 stalled: %s %s", s_status, diag);
+#else
   PBL_LOG_ERR("CC2564 stalled: %s", s_status);
+#endif
 }
 
 const char *cc2564_status(void) {
