@@ -152,6 +152,7 @@ watch.
 | Calendar year | 2000-2037; a year outside is clamped and the calendar rewritten | 2000-2099 | None before 2038 |
 | Calendar weekday | Zero | 1-7 | None known; the stock time conversion ignores it |
 | Seconds read from the calendar | Truncated | Rounded to the nearest second | Up to one second apart |
+| Filesystem page headers | 8 KiB pages, version 0x5001 | 8 KiB pages; version 0x5002 in every header written to erased flash (`CONFIG_FS_PFS_VERSION_2`), 0x5001 read as well. A filesystem with one page per 128 KiB sector, as earlier builds of this port wrote, is converted at the first boot (`CONFIG_FS_PFS_CONVERT_SECTOR_PAGES`), which takes minutes | The stock firmware, and a build of this port with sector-sized pages, format the filesystem when they start after this firmware |
 
 After three failed starts before the firmware marks itself stable, when
 the firmware asks, or with Back, Select and Up held for 5 s, the bootloader
