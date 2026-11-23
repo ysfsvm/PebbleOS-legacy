@@ -680,6 +680,12 @@ static void prv_controller_detach(void) {
   hci_h4_sm_init(&s_hci_h4sm, &s_hci_h4_allocs_from_ll, prv_hci_frame_cb);
 }
 
+static void prv_host_reset_after_stall(bool stalled) {
+  if (stalled) {
+    ble_hs_sched_reset(BLE_HS_ECONTROLLER);
+  }
+}
+
 //! On the HCI task: power cycle a controller that stopped answering, through its boot
 //! sequence. The host then resyncs with an HCI Reset.
 static void prv_controller_reboot(void) {
@@ -701,6 +707,7 @@ static void prv_controller_reboot(void) {
     s_controller_state = ControllerStateFailed;
     PBL_LOG_ERR("CC2564 stopped answering again after %lu power cycles: left off",
                 (unsigned long)s_reboots);
+    prv_host_reset_after_stall(stalled);
     return;
   }
   s_reboots++;
@@ -725,6 +732,7 @@ static void prv_controller_reboot(void) {
     // cc2564_boot() left the chip off and gave its STOP block back.
     s_controller_state = ControllerStateFailed;
   }
+  prv_host_reset_after_stall(stalled);
 }
 #endif
 
